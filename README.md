@@ -24,9 +24,15 @@ you ──▶ web chat UI ──▶ Yaad server ──▶ Nebius Token Factory �
 ```
 
 1. **Recall** — relevant memories are injected into context before every turn.
+   Semantic recall via Nebius embeddings (cosine similarity) with keyword fallback.
 2. **Skills** — the agent can run reusable skill packs (e.g. `morning-briefing`).
 3. **Reason** — fast Nemotron model for tool routing; reasoning model for deep thinking.
-4. **Act** — tool loop (`remember`, `recall`, `web_search`, `run_skill`), then a final answer.
+4. **Act** — tool loop (`remember`, `recall`, `web_search`, `run_skill`), then a final answer,
+   **streamed token-by-token** over SSE.
+5. **Learn** — after every turn, a background pass extracts durable facts into long-term
+   memory automatically (`YAAD_AUTO_REMEMBER`).
+
+**Extras for the demo:** 🎙 voice input (hi-IN), 💰 per-turn + session token/cost meter.
 
 ## How Nebius + NVIDIA are used (for the judges)
 

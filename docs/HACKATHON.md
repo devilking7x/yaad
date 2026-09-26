@@ -33,6 +33,12 @@ persistent memory (not chat history), reusable skill packs, tool access (web sea
 and data that stays on the user's machine. The Nemotron fast/reasoning split keeps it
 responsive and cheap — exactly the pattern the track brief recommends.
 
+Advanced differentiators:
+- **Semantic memory** — embeddings + cosine recall, keyword fallback (works offline).
+- **Proactive learning** — background pass saves durable facts after each turn, no prompting.
+- **Streaming + tool transparency** — tokens stream live; the UI shows what it's doing.
+- **Token/cost meter** — per-turn tokens + estimated $ cost, session totals. Credits stretched visibly.
+
 ## Also eligible
 
 - **Best Use of Tavily ($3,000):** Tavily powers `web_search`, deeply integrated into the agent loop.
