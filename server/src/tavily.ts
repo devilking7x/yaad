@@ -17,6 +17,7 @@ async function tavilyRaw(path: string, body: Record<string, unknown>): Promise<a
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ api_key: config.tavilyApiKey, ...body }),
+    signal: AbortSignal.timeout(90_000),
   });
   if (!res.ok) throw new Error(`Tavily ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return res.json();

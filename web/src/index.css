@@ -28,3 +28,32 @@ body {
   background: rgba(212, 160, 23, 0.3);
   border-radius: 3px;
 }
+
+/* Rendered assistant markdown */
+.md-body p { margin: 0.35em 0; }
+.md-body p:first-child { margin-top: 0; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body strong { color: #f6d365; font-weight: 600; }
+.md-code {
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 0.85em;
+  font-family: ui-monospace, monospace;
+}
+.md-pre {
+  background: #0a0a0a;
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  font-size: 0.85em;
+  font-family: ui-monospace, monospace;
+  white-space: pre;
+}
+.md-list { margin: 0.35em 0; padding-left: 1.2em; list-style: disc; }
+.md-list li { margin: 0.2em 0; }
+.md-link { color: #f6d365; text-decoration: underline; }
+.md-link:hover { color: #ffe9a8; }

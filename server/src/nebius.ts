@@ -48,11 +48,22 @@ function headers(): Record<string, string> {
 }
 
 async function postJson(path: string, body: unknown, attempt = 0): Promise<Response> {
-  const res = await fetch(`${config.nebiusBaseUrl}${path}`, {
-    method: "POST",
-    headers: headers(),
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${config.nebiusBaseUrl}${path}`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+  } catch (e) {
+    // Network error / timeout — retry with backoff like a 5xx.
+    if (attempt < MAX_RETRIES - 1) {
+      await sleep(1000 * 2 ** attempt);
+      return postJson(path, body, attempt + 1);
+    }
+    throw new Error(`Token Factory unreachable: ${(e as Error).message}`.slice(0, 300));
+  }
   if (res.ok) return res;
   if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES - 1) {
     await sleep(1000 * 2 ** attempt);

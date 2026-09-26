@@ -1,9 +1,14 @@
 const API = import.meta.env.VITE_API_URL ?? "";
+const TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
+
+function authHeaders(): Record<string, string> {
+  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
+}
 
 async function req(path: string, init?: RequestInit) {
   const res = await fetch(`${API}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: { "Content-Type": "application/json", ...authHeaders(), ...(init?.headers ?? {}) },
   });
   if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
   return res.json();
@@ -46,7 +51,7 @@ export async function chatStream(
 ): Promise<void> {
   const res = await fetch(`${API}/api/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify({ message, history, ...(image ? { image } : {}) }),
   });
   if (!res.ok || !res.body) {

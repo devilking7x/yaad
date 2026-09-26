@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, chatStream, type ChatSession, type Memory, type Reminder, type Skill } from "./api";
+import { renderRich } from "./md";
 
 interface Msg {
   role: "user" | "assistant";
@@ -417,7 +418,14 @@ export default function App() {
                   {m.image && (
                     <img src={m.image} alt="shared" className="rounded-xl mb-2 max-h-48 object-contain" />
                   )}
-                  {m.content}
+                  {m.role === "assistant" ? (
+                    <div
+                      className="md-body"
+                      dangerouslySetInnerHTML={{ __html: renderRich(m.content) }}
+                    />
+                  ) : (
+                    <span>{m.content}</span>
+                  )}
                   {m.meta && <div className="text-[10px] text-neutral-500 mt-1">{m.meta}</div>}
                 </div>
               </div>

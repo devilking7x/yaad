@@ -102,6 +102,16 @@ yaad/
 - [ ] Scheduled skills (morning briefing on a cron)
 - [ ] Import from agent-memory-notes MCP server
 
+## Security notes (for your public demo)
+
+- **Auth (optional):** set `YAAD_API_TOKEN` on the server and `VITE_API_TOKEN` in the web
+  build — every `/api/*` call except `/api/health` then needs the bearer token.
+- **Rate limiting:** `/api/chat` and `/api/chat/stream` are capped at 30 turns/min per IP,
+  so random visitors can't burn your Nebius credits.
+- **CORS:** set `CORS_ORIGIN` to your Pages URL (default `*` is dev mode).
+- Timeouts on all upstream calls (Nebius 120s, Tavily/vision 90s, skill fetch 30s);
+  session ids are strictly validated so they can't escape the sessions directory.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

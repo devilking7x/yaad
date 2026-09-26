@@ -15,7 +15,13 @@ import {
 import { installSkill, listSkills } from "./skills.js";
 
 const app = express();
-app.use(cors());
+app.use(
+  cors(
+    config.corsOrigin === "*"
+      ? undefined
+      : { origin: config.corsOrigin.split(",").map((s) => s.trim()) }
+  )
+);
 app.use(express.json({ limit: "12mb" })); // images ride along as data URLs
 
 app.get("/api/health", (_req, res) => {
@@ -27,6 +33,31 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
+// Optional shared-secret auth (set YAAD_API_TOKEN on the server). Health stays open.
+app.use("/api", (req, res, next) => {
+  if (!config.apiToken) return next();
+  if (req.headers.authorization === `Bearer ${config.apiToken}`) return next();
+  res.status(401).json({ error: "Unauthorized — set the API token" });
+});
+
+// In-memory rate limiter: protects your Nebius credits on a public demo.
+const hits = new Map<string, number[]>();
+function rateLimit(max: number, windowMs: number) {
+  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const ip = req.ip ?? "unknown";
+    const now = Date.now();
+    const arr = (hits.get(ip) ?? []).filter((t) => now - t < windowMs);
+    if (arr.length >= max) {
+      res.status(429).json({ error: "Bahut tez! Thoda ruk ke try karo." });
+      return;
+    }
+    arr.push(now);
+    hits.set(ip, arr);
+    next();
+  };
+}
+const chatLimit = rateLimit(30, 60_000); // 30 chat turns / minute / IP
+
 // List models your Token Factory key can reach — use this to pick model IDs.
 app.get("/api/models", async (_req, res) => {
   try {
@@ -36,7 +67,7 @@ app.get("/api/models", async (_req, res) => {
   }
 });
 
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", chatLimit, async (req, res) => {
   try {
     assertConfigured();
     const { message, history, image } = req.body as {
@@ -57,7 +88,7 @@ app.post("/api/chat", async (req, res) => {
 });
 
 // Streaming chat: server-sent events (token | tool | done | error).
-app.post("/api/chat/stream", async (req, res) => {
+app.post("/api/chat/stream", chatLimit, async (req, res) => {
   try {
     assertConfigured();
   } catch (e) {
@@ -161,12 +192,16 @@ app.post("/api/sessions", (req, res) => {
 });
 
 app.get("/api/sessions/:id", (req, res) => {
-  const s = getSession(req.params.id);
-  if (!s) {
-    res.status(404).json({ error: "Session not found" });
-    return;
+  try {
+    const s = getSession(req.params.id);
+    if (!s) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json(s);
+  } catch {
+    res.status(400).json({ error: "Invalid session id" });
   }
-  res.json(s);
 });
 
 app.post("/api/sessions/:id/messages", (req, res) => {
@@ -174,12 +209,16 @@ app.post("/api/sessions/:id/messages", (req, res) => {
   const clean = (messages ?? [])
     .filter((m) => ["user", "assistant"].includes(m.role))
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-  const s = appendSessionMessages(req.params.id, clean);
-  if (!s) {
-    res.status(404).json({ error: "Session not found" });
-    return;
+  try {
+    const s = appendSessionMessages(req.params.id, clean);
+    if (!s) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch {
+    res.status(400).json({ error: "Invalid session id" });
   }
-  res.json({ ok: true });
 });
 
 app.delete("/api/sessions/:id", (req, res) => {

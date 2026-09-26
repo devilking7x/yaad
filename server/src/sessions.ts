@@ -24,12 +24,18 @@ function dir(): string {
   return d;
 }
 
+/** Session ids come from the URL — never let them escape the sessions dir. */
+function safeId(id: string): string {
+  if (!/^ses_[a-z0-9]{4,16}_[a-z0-9]{2,8}$/.test(id)) throw new Error("Invalid session id");
+  return id;
+}
+
 const uid = (): string =>
   `ses_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
 function read(id: string): ChatSession | undefined {
   try {
-    return JSON.parse(fs.readFileSync(path.join(dir(), `${id}.json`), "utf-8")) as ChatSession;
+    return JSON.parse(fs.readFileSync(path.join(dir(), `${safeId(id)}.json`), "utf-8")) as ChatSession;
   } catch {
     return undefined;
   }
@@ -76,7 +82,7 @@ export function appendSessionMessages(id: string, messages: SessionMessage[]): C
 
 export function deleteSession(id: string): boolean {
   try {
-    fs.unlinkSync(path.join(dir(), `${id}.json`));
+    fs.unlinkSync(path.join(dir(), `${safeId(id)}.json`));
     return true;
   } catch {
     return false;

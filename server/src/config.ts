@@ -49,6 +49,11 @@ export const config = {
   port: Number(process.env.PORT ?? 8787),
   memoryDir: expandHome(process.env.MEMORY_DIR ?? "~/.yaad"),
   skillsDir: resolveSkillsDir(),
+  // Optional shared secret: when set, every /api/* call (except /api/health)
+  // must send `Authorization: Bearer <token>`. Web UI reads VITE_API_TOKEN.
+  apiToken: process.env.YAAD_API_TOKEN ?? "",
+  // Comma-separated allowed origins, or "*" (default) for open dev mode.
+  corsOrigin: process.env.CORS_ORIGIN ?? "*",
 };
 
 export function assertConfigured(): void {

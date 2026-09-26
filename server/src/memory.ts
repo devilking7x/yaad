@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
+import { createMutex } from "./mutex.js";
 import { embed } from "./nebius.js";
 
 // Local persistent memory store (JSON file).
@@ -53,28 +54,32 @@ function cosine(a: number[], b: number[]): number {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
+const withLock = createMutex();
+
 export async function memoryAdd(text: string, tags: string[] = []): Promise<Memory> {
-  let embedding: number[] | undefined;
-  try {
-    if (config.nebiusApiKey && config.embeddingModel) {
-      const [vec] = await embed([text]);
-      embedding = vec;
+  return withLock(async () => {
+    let embedding: number[] | undefined;
+    try {
+      if (config.nebiusApiKey && config.embeddingModel) {
+        const [vec] = await embed([text]);
+        embedding = vec;
+      }
+    } catch {
+      /* store without embedding; keyword search still works */
     }
-  } catch {
-    /* store without embedding; keyword search still works */
-  }
-  const mems = load();
-  const mem: Memory = {
-    id: uid(),
-    text,
-    tags,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...(embedding ? { embedding } : {}),
-  };
-  mems.push(mem);
-  save(mems);
-  return mem;
+    const mems = load();
+    const mem: Memory = {
+      id: uid(),
+      text,
+      tags,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      ...(embedding ? { embedding } : {}),
+    };
+    mems.push(mem);
+    save(mems);
+    return mem;
+  });
 }
 
 export function memoryList(): Memory[] {
@@ -86,29 +91,31 @@ export function memoryGet(id: string): Memory | undefined {
 }
 
 export async function memoryUpdate(id: string, text: string, tags?: string[]): Promise<Memory | undefined> {
-  const mems = load();
-  const mem = mems.find((m) => m.id === id);
-  if (!mem) return undefined;
-  mem.text = text;
-  if (tags) mem.tags = tags;
-  mem.updatedAt = new Date().toISOString();
-  try {
-    if (config.nebiusApiKey && config.embeddingModel) {
-      const [vec] = await embed([text]);
-      mem.embedding = vec;
+  return withLock(async () => {
+    const mems = load();
+    const mem = mems.find((m) => m.id === id);
+    if (!mem) return undefined;
+    mem.text = text;
+    if (tags) mem.tags = tags;
+    mem.updatedAt = new Date().toISOString();
+    try {
+      if (config.nebiusApiKey && config.embeddingModel) {
+        const [vec] = await embed([text]);
+        mem.embedding = vec;
+      }
+    } catch {
+      /* keep old embedding */
     }
-  } catch {
-    /* keep old embedding */
-  }
-  save(mems);
-  return mem;
+    save(mems);
+    return mem;
+  });
 }
 
 export function memoryDelete(id: string): boolean {
   const mems = load();
   const next = mems.filter((m) => m.id !== id);
   if (next.length === mems.length) return false;
-  save(mems);
+  save(next);
   return true;
 }
 

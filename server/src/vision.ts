@@ -17,6 +17,7 @@ export async function describeImage(dataUrl: string): Promise<string> {
       "Content-Type": "application/json",
       Authorization: `Bearer ${config.nebiusApiKey}`,
     },
+    signal: AbortSignal.timeout(90_000),
     body: JSON.stringify({
       model: config.visionModel,
       temperature: 0.3,

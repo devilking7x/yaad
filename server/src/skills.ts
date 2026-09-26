@@ -54,7 +54,10 @@ export async function installSkill(name: string, url: string): Promise<Skill> {
   const clean = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   if (!clean) throw new Error("Give the skill a valid name (letters, numbers, dashes)");
   if (!/^https?:\/\//i.test(url)) throw new Error("URL must start with http(s)");
-  const res = await fetch(url, { headers: { "User-Agent": "yaad/1.0" } });
+  const res = await fetch(url, {
+    headers: { "User-Agent": "yaad/1.0" },
+    signal: AbortSignal.timeout(30_000),
+  });
   if (!res.ok) throw new Error(`Could not fetch that URL (HTTP ${res.status})`);
   const md = await res.text();
   const skill = parseSkill(`${clean}.md`, md);
