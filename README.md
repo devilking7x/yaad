@@ -38,8 +38,16 @@ you ──▶ web chat UI ──▶ Yaad server ──▶ Nebius Token Factory �
 8. **Grow** — paste any raw SKILL.md URL and Yaad installs it as a new capability
    (`install_skill`). Every chat is auto-saved to a session history (drawer ☰) —
    new chat, reload, delete, just like a real product.
+9. **Become yours** — ⚙️ custom instructions ("Hamesha short jawab do", "Mujhe 'bhai' bulao")
+   are injected into the system prompt, persisted server-side. 🧠 deep-think toggle
+   forces the reasoning model for any question. ☀️ Every morning (before noon) Yaad
+   offers to build your briefing from memory + skills + live web.
+10. **Stay yours** — 💾 one-click brain backup: export all memories, reminders, settings
+    to JSON; import them on any device. 💰 optional `YAAD_DAILY_CAP_USD` blocks chat
+    when today's spend is reached — your credits can't be drained by accident.
 
-**Extras for the demo:** 🎙 voice input (hi-IN), 💰 per-turn + session token/cost meter.
+**Extras for the demo:** 🎙 voice input (hi-IN), 🔊 voice output — "🔊 suno" on any
+answer, ⏹ stop-generation button, 🔍 memory search, 💰 per-turn + session token/cost meter.
 
 ## How Nebius + NVIDIA are used (for the judges)
 

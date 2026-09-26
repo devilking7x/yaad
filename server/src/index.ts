@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { runAgent, runAgentStream } from "./agent.js";
 import { assertConfigured, config } from "./config.js";
-import { memoryDelete, memoryExport, memoryGet, memoryList } from "./memory.js";
+import { memoryAdd, memoryDelete, memoryExport, memoryGet, memoryList } from "./memory.js";
 import { listModels } from "./nebius.js";
 import { addReminder, completeReminder, deleteReminder, listReminders } from "./reminders.js";
 import {
@@ -12,7 +12,9 @@ import {
   getSession,
   listSessions,
 } from "./sessions.js";
+import { getSettings, setSettings } from "./settings.js";
 import { installSkill, listSkills } from "./skills.js";
+import { todaySpendUsd } from "./spend.js";
 
 const app = express();
 app.use(
@@ -70,17 +72,18 @@ app.get("/api/models", async (_req, res) => {
 app.post("/api/chat", chatLimit, async (req, res) => {
   try {
     assertConfigured();
-    const { message, history, image } = req.body as {
+    const { message, history, image, forceReasoning } = req.body as {
       message?: string;
       history?: Array<{ role: string; content: string }>;
       image?: string;
+      forceReasoning?: boolean;
     };
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "Body must include { message: string }" });
       return;
     }
     const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
-    const result = await runAgent(message, safeHistory as never, { image });
+    const result = await runAgent(message, safeHistory as never, { image, forceReasoning });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -95,10 +98,11 @@ app.post("/api/chat/stream", chatLimit, async (req, res) => {
     res.status(500).json({ error: (e as Error).message });
     return;
   }
-  const { message, history, image } = req.body as {
+  const { message, history, image, forceReasoning } = req.body as {
     message?: string;
     history?: Array<{ role: string; content: string }>;
     image?: string;
+    forceReasoning?: boolean;
   };
   if (!message || typeof message !== "string") {
     res.status(400).json({ error: "Body must include { message: string }" });
@@ -115,7 +119,7 @@ app.post("/api/chat/stream", chatLimit, async (req, res) => {
     res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   try {
-    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), { image });
+    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), { image, forceReasoning });
   } catch (e) {
     send("error", { error: (e as Error).message });
   }
@@ -223,6 +227,67 @@ app.post("/api/sessions/:id/messages", (req, res) => {
 
 app.delete("/api/sessions/:id", (req, res) => {
   res.json({ ok: deleteSession(req.params.id) });
+});
+
+// --- Settings ---------------------------------------------------------------
+
+app.get("/api/settings", (_req, res) => {
+  res.json({ ...getSettings(), todaySpendUsd: todaySpendUsd() });
+});
+
+app.post("/api/settings", (req, res) => {
+  const { customInstructions } = req.body as { customInstructions?: string };
+  res.json(setSettings(customInstructions ?? ""));
+});
+
+// --- Brain backup: export/import everything ----------------------------------
+
+app.get("/api/brain/export", (_req, res) => {
+  res.json({
+    exportedAt: new Date().toISOString(),
+    settings: getSettings(),
+    memories: memoryExport(),
+    reminders: listReminders(),
+    sessions: listSessions(),
+  });
+});
+
+app.post("/api/brain/import", (req, res) => {
+  try {
+    const { settings, memories, reminders } = req.body as {
+      settings?: { customInstructions?: string };
+      memories?: Array<{ text: string; tags?: string[] }>;
+      reminders?: Array<{ text: string; remindAt: string }>;
+    };
+    let restored = 0;
+    if (settings?.customInstructions) {
+      setSettings(settings.customInstructions);
+      restored++;
+    }
+    // Import via the normal write paths so embeddings/validation apply.
+    (async () => {
+      for (const m of memories ?? []) {
+        if (m.text) {
+          await memoryAdd(m.text, m.tags ?? ["imported"]);
+          restored++;
+        }
+      }
+      for (const r of reminders ?? []) {
+        try {
+          if (r.text && r.remindAt) {
+            addReminder(r.text, r.remindAt);
+            restored++;
+          }
+        } catch {
+          /* skip bad dates */
+        }
+      }
+    })()
+      .then(() => res.json({ ok: true, restored }))
+      .catch((e) => res.status(500).json({ error: (e as Error).message }));
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
 });
 
 app.listen(config.port, () => {

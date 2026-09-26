@@ -63,6 +63,15 @@ export default function App() {
   const [skillName, setSkillName] = useState("");
   const [skillUrl, setSkillUrl] = useState("");
   const [skillMsg, setSkillMsg] = useState("");
+  const [deepThink, setDeepThink] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [todaySpend, setTodaySpend] = useState<number | null>(null);
+  const [memoryQuery, setMemoryQuery] = useState("");
+  const [speakingIdx, setSpeakingIdx] = useState<number | null>(null);
+  const [showBriefing, setShowBriefing] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const brainFileRef = useRef<HTMLInputElement>(null);
   const [serverOk, setServerOk] = useState<boolean | null>(null);
   const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
   const [listening, setListening] = useState(false);
@@ -78,6 +87,18 @@ export default function App() {
     api.skills().then(setSkills).catch(() => {});
     api.reminders.list().then(setReminders).catch(() => {});
     api.sessions.list().then(setSessions).catch(() => {});
+    api.settings
+      .get()
+      .then((s) => {
+        setCustomInstructions(s.customInstructions ?? "");
+        setTodaySpend(s.todaySpendUsd ?? null);
+      })
+      .catch(() => {});
+    // Morning briefing nudge: once per day, before noon.
+    const today = new Date().toDateString();
+    if (new Date().getHours() < 12 && localStorage.getItem("yaad-briefing-date") !== today) {
+      setShowBriefing(true);
+    }
   }, []);
 
   // Reminder scheduler: poll every 30s, fire browser notification + in-chat nudge.
@@ -199,6 +220,87 @@ export default function App() {
     }
   }
 
+  function stopSpeak() {
+    try {
+      speechSynthesis.cancel();
+    } catch {}
+    setSpeakingIdx(null);
+  }
+
+  /** 🔊 Voice output — Yaad jawab suna bhi sakta hai (hi-IN). */
+  function speak(text: string, idx: number) {
+    try {
+      if (speakingIdx === idx) {
+        stopSpeak();
+        return;
+      }
+      speechSynthesis.cancel();
+      const clean = text
+        .replace(/```[\s\S]*?```/g, " code. ")
+        .replace(/[*_`#>\[\]()|]/g, "")
+        .replace(/https?:\/\/\S+/g, " link. ")
+        .slice(0, 600);
+      const u = new SpeechSynthesisUtterance(clean);
+      u.lang = "hi-IN";
+      const v = speechSynthesis.getVoices().find((vv) => vv.lang.startsWith("hi"));
+      if (v) u.voice = v;
+      u.onend = () => setSpeakingIdx(null);
+      u.onerror = () => setSpeakingIdx(null);
+      setSpeakingIdx(idx);
+      speechSynthesis.speak(u);
+    } catch {}
+  }
+
+  function dismissBriefing() {
+    localStorage.setItem("yaad-briefing-date", new Date().toDateString());
+    setShowBriefing(false);
+  }
+
+  async function saveSettings() {
+    try {
+      const s = await api.settings.set(customInstructions);
+      setCustomInstructions(s.customInstructions);
+      alert("✅ Yaad ab tumhare hisaab se baat karega");
+    } catch {
+      alert("Save nahi hua — server online hai?");
+    }
+  }
+
+  async function exportBrain() {
+    try {
+      const data = await api.brain.export();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `yaad-brain-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch {}
+  }
+
+  function onBrainFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = async () => {
+      try {
+        const data = JSON.parse(r.result as string);
+        const res = await api.brain.import(data);
+        alert(`✅ ${res.restored} cheezein restore ho gayin`);
+        refreshMemories();
+        api.settings.get().then((s) => setCustomInstructions(s.customInstructions ?? "")).catch(() => {});
+      } catch {
+        alert("❌ Ye valid brain backup nahi lagta");
+      }
+    };
+    r.readAsText(f);
+    e.target.value = "";
+  }
+
+  const filteredMemories = memories.filter((m) =>
+    `${m.text} ${m.tags.join(" ")}`.toLowerCase().includes(memoryQuery.toLowerCase())
+  );
+
   function exportChat() {
     const lines = messages
       .filter((m) => m.content.trim())
@@ -220,6 +322,7 @@ export default function App() {
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
+    stopSpeak();
     const img = pendingImage;
     setInput("");
     setPendingImage(null);
@@ -237,6 +340,8 @@ export default function App() {
     try {
       let acc = "";
       let think = "";
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
       await chatStream(text || "Is tasveer ke baare me batao aur yaad rakho.", history, (e) => {
         if (e.type === "token") {
           acc += e.token;
@@ -265,11 +370,17 @@ export default function App() {
           setStatus("");
         }
       },
-        img ?? undefined
+        img ?? undefined,
+        { forceReasoning: deepThink, signal: ctrl.signal }
       );
     } catch (err) {
-      patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${(err as Error).message}` }));
+      if ((err as Error).name === "AbortError") {
+        patch((m) => ({ ...m, content: m.content ? `${m.content}\n\n⏹ Rok diya.` : "⏹ Rok diya." }));
+      } else {
+        patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${(err as Error).message}` }));
+      }
     } finally {
+      abortRef.current = null;
       setBusy(false);
       setStatus("");
     }
@@ -314,6 +425,20 @@ export default function App() {
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs">
+          <button
+            onClick={() => setDeepThink(!deepThink)}
+            title="Deep soch — hamesha reasoning model use karo"
+            className={`text-base leading-none ${deepThink ? "text-yellow-400" : "text-neutral-600 hover:text-neutral-300"}`}
+          >
+            🧠
+          </button>
+          <button
+            onClick={() => setSettingsOpen(!settingsOpen)}
+            title="Settings — Yaad ko apne hisaab se dhalo"
+            className={`text-base leading-none ${settingsOpen ? "text-yellow-400" : "text-neutral-500 hover:text-neutral-300"}`}
+          >
+            ⚙️
+          </button>
           <button onClick={exportChat} className="text-neutral-400 hover:text-yellow-400" title="Chat export (Markdown)">
             ⬇ export
           </button>
@@ -325,6 +450,57 @@ export default function App() {
           </span>
         </div>
       </header>
+
+      {/* Settings popover */}
+      {settingsOpen && (
+        <div className="fixed top-16 right-4 z-40 w-80 max-w-[90vw] bg-neutral-950 border gold-border rounded-2xl p-4 text-sm shadow-2xl">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-semibold gold-text">⚙️ Yaad ko apne hisaab se dhalo</p>
+            <button onClick={() => setSettingsOpen(false)} className="text-neutral-500 hover:text-yellow-400">✕</button>
+          </div>
+          <p className="text-xs text-neutral-500 mb-1.5">
+            Custom instructions — jaise "Hamesha short jawab do" ya "Mujhe 'bhai' bulao".
+          </p>
+          <textarea
+            value={customInstructions}
+            onChange={(e) => setCustomInstructions(e.target.value)}
+            rows={3}
+            placeholder="Yaad hamesha…"
+            className="w-full bg-neutral-900 border gold-border rounded-xl px-3 py-2 text-xs outline-none focus:border-yellow-500 placeholder:text-neutral-600"
+          />
+          <button
+            onClick={saveSettings}
+            className="mt-2 w-full bg-yellow-600 hover:bg-yellow-500 text-black font-semibold rounded-xl py-2 text-xs"
+          >
+            Save instructions
+          </button>
+          <div className="border-t gold-border mt-3 pt-3">
+            <p className="text-xs text-neutral-500 mb-2">
+              💾 Brain backup — tumhari yaadein, reminders, settings. Tumhara data, tumhare paas.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={exportBrain}
+                className="flex-1 bg-neutral-900 border gold-border rounded-xl py-1.5 text-xs text-neutral-300 hover:text-yellow-400"
+              >
+                ⬇ Export brain
+              </button>
+              <button
+                onClick={() => brainFileRef.current?.click()}
+                className="flex-1 bg-neutral-900 border gold-border rounded-xl py-1.5 text-xs text-neutral-300 hover:text-yellow-400"
+              >
+                ⬆ Import brain
+              </button>
+              <input ref={brainFileRef} type="file" accept="application/json" className="hidden" onChange={onBrainFile} />
+            </div>
+          </div>
+          {todaySpend != null && (
+            <p className="text-[10px] text-neutral-600 mt-3 text-center">
+              Aaj ka kharch: ${todaySpend.toFixed(4)}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Chat history drawer */}
       {drawerOpen && (
@@ -395,6 +571,29 @@ export default function App() {
                 </p>
               </div>
             )}
+            {showBriefing && serverOk && (
+              <div className="bg-neutral-900 border gold-border rounded-2xl p-4 text-sm relative">
+                <button
+                  onClick={dismissBriefing}
+                  className="absolute top-2 right-3 text-neutral-600 hover:text-neutral-300"
+                >
+                  ✕
+                </button>
+                <p className="gold-text font-semibold mb-1">☀️ Good morning!</p>
+                <p className="text-neutral-300 text-xs leading-relaxed mb-2">
+                  Aaj ki briefing bana dun — mausam, taaza khabrein, aur tumhari yaadon se priorities?
+                </p>
+                <button
+                  onClick={() => {
+                    dismissBriefing();
+                    send("Good morning! Mera briefing do.");
+                  }}
+                  className="bg-yellow-600 hover:bg-yellow-500 text-black font-semibold rounded-xl px-4 py-1.5 text-xs"
+                >
+                  Briefing banao
+                </button>
+              </div>
+            )}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
@@ -427,6 +626,15 @@ export default function App() {
                     <span>{m.content}</span>
                   )}
                   {m.meta && <div className="text-[10px] text-neutral-500 mt-1">{m.meta}</div>}
+                  {m.role === "assistant" && m.content && !busy && (
+                    <button
+                      onClick={() => speak(m.content, i)}
+                      title="Jawab suno"
+                      className="text-xs mt-1 text-neutral-600 hover:text-yellow-400"
+                    >
+                      {speakingIdx === i ? "🔇 rok" : "🔊 suno"}
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
@@ -490,14 +698,24 @@ export default function App() {
                 placeholder={listening ? "Bol rahe ho… sun raha hun" : "Yaad se kuch kaho…"}
                 className="flex-1 bg-neutral-900 border gold-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-yellow-500 placeholder:text-neutral-600"
               />
-              <button
-                onClick={() => send()}
-                disabled={busy || (!input.trim() && !pendingImage)}
-                className="rounded-xl px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
-                style={{ background: "linear-gradient(135deg,#f6d365,#d4a017)" }}
-              >
-                Bhej
-              </button>
+              {busy ? (
+                <button
+                  onClick={() => abortRef.current?.abort()}
+                  title="Jawab rok do"
+                  className="rounded-xl px-5 py-2.5 text-sm font-semibold bg-red-950 text-red-200 border border-red-800"
+                >
+                  ⏹ Rok
+                </button>
+              ) : (
+                <button
+                  onClick={() => send()}
+                  disabled={!input.trim() && !pendingImage}
+                  className="rounded-xl px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
+                  style={{ background: "linear-gradient(135deg,#f6d365,#d4a017)" }}
+                >
+                  Bhej
+                </button>
+              )}
             </div>
             <p className="text-[10px] text-neutral-600 mt-2 text-center">
               Powered by NVIDIA Nemotron on Nebius Token Factory · memory stays on your machine
@@ -533,24 +751,35 @@ export default function App() {
             ))}
           </div>
           <div className="flex-1 overflow-y-auto chat-scroll p-3 space-y-2">
-            {tab === "memory" &&
-              (memories.length === 0 ? (
-                <p className="text-xs text-neutral-600 p-2">
-                  Abhi koi yaad nahi. Mujhse baat karo — main important cheezein khud save kar lunga.
-                </p>
-              ) : (
-                memories.map((m) => (
-                  <div key={m.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
-                    <p className="text-neutral-200">{m.text}</p>
-                    <div className="flex items-center justify-between mt-1.5">
-                      <span className="text-neutral-600">{m.tags.join(", ")}</span>
-                      <button onClick={() => forget(m.id)} className="text-neutral-500 hover:text-red-400">
-                        bhula do
-                      </button>
+            {tab === "memory" && (
+              <>
+                <input
+                  value={memoryQuery}
+                  onChange={(e) => setMemoryQuery(e.target.value)}
+                  placeholder="🔍 Yaadon me dhoondo…"
+                  className="w-full bg-neutral-900 border gold-border rounded-xl px-3 py-1.5 text-xs outline-none focus:border-yellow-500 placeholder:text-neutral-600 mb-1"
+                />
+                {filteredMemories.length === 0 ? (
+                  <p className="text-xs text-neutral-600 p-2">
+                    {memories.length === 0
+                      ? "Abhi koi yaad nahi. Mujhse baat karo — main important cheezein khud save kar lunga."
+                      : "Kuch nahi mila."}
+                  </p>
+                ) : (
+                  filteredMemories.map((m) => (
+                    <div key={m.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
+                      <p className="text-neutral-200">{m.text}</p>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-neutral-600">{m.tags.join(", ")}</span>
+                        <button onClick={() => forget(m.id)} className="text-neutral-500 hover:text-red-400">
+                          bhula do
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
-              ))}
+                  ))
+                )}
+              </>
+            )}
             {tab === "skills" && (
               <>
                 {skills.length === 0 ? (

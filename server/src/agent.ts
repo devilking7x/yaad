@@ -2,7 +2,9 @@ import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { memoryAdd, memorySearch } from "./memory.js";
 import { addReminder } from "./reminders.js";
+import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
+import { checkBudget, recordSpend } from "./spend.js";
 import { deepResearch, readPage, webSearch } from "./tavily.js";
 import { describeImage } from "./vision.js";
 
@@ -191,11 +193,12 @@ function systemPrompt(): string {
       ? skills.map((s) => `- ${s.name}: ${s.description} (${s.when})`).join("\n")
       : "(no skills installed — add markdown packs to the skills/ directory)";
   const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
+  const custom = getSettings().customInstructions.trim();
   return [
     "You are Yaad, a personal AI assistant that remembers its user.",
     "You are private: the user's data stays in their own memory store, never shared.",
     `Current time: ${nowIST} (IST, Asia/Kolkata).`,
-    "",
+    custom ? `\nUSER'S CUSTOM INSTRUCTIONS (always follow these):\n${custom}\n` : "",
     "MEMORY: At the start of a conversation, relevant memories are injected below.",
     "Use `remember` to save durable facts (preferences, people, decisions, routines).",
     "Use `recall` when you need more context.",
@@ -264,8 +267,9 @@ export async function runAgentStream(
   userMessage: string,
   history: ChatMessage[],
   onEvent: (e: AgentEvent) => void,
-  opts: { image?: string } = {}
+  opts: { image?: string; forceReasoning?: boolean } = {}
 ): Promise<void> {
+  checkBudget();
   // Vision: describe a shared image and fold it into memory before reasoning.
   let imageNote = "";
   if (opts.image) {
@@ -298,7 +302,7 @@ export async function runAgentStream(
 
   for (;;) {
     steps++;
-    const needsReasoning = messages.length > 6 || userMessage.length > 500;
+    const needsReasoning = opts.forceReasoning || messages.length > 6 || userMessage.length > 500;
     model = needsReasoning ? config.reasoningModel : config.fastModel;
 
     let assembled: ChatMessage | undefined;
@@ -338,6 +342,7 @@ export async function runAgentStream(
     usage: totalUsage,
     costUsd: estimateCost(totalUsage),
   });
+  recordSpend(estimateCost(totalUsage));
 
   // Learn in the background — never blocks the delivered response.
   await consolidateMemory(userMessage, finalReply);
@@ -355,7 +360,7 @@ export interface TurnResult {
 export async function runAgent(
   userMessage: string,
   history: ChatMessage[] = [],
-  opts: { image?: string } = {}
+  opts: { image?: string; forceReasoning?: boolean } = {}
 ): Promise<TurnResult> {
   let reply = "";
   let model = "";
@@ -372,6 +377,6 @@ export async function runAgent(
     } else if (e.type === "error") {
       throw new Error(e.error);
     }
-  });
+  }, opts);
   return { reply, model, steps, usage, costUsd };
 }

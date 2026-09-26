@@ -54,6 +54,8 @@ export const config = {
   apiToken: process.env.YAAD_API_TOKEN ?? "",
   // Comma-separated allowed origins, or "*" (default) for open dev mode.
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
+  // Daily spend cap in USD (0 = no cap). Blocks chat when reached.
+  dailyCapUsd: Number(process.env.YAAD_DAILY_CAP_USD ?? 0),
 };
 
 export function assertConfigured(): void {

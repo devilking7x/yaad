@@ -47,12 +47,14 @@ export async function chatStream(
   message: string,
   history: Array<{ role: string; content: string }>,
   onEvent: (e: StreamEvent) => void,
-  image?: string
+  image?: string,
+  opts: { forceReasoning?: boolean; signal?: AbortSignal } = {}
 ): Promise<void> {
   const res = await fetch(`${API}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify({ message, history, ...(image ? { image } : {}) }),
+    body: JSON.stringify({ message, history, ...(image ? { image } : {}), forceReasoning: !!opts.forceReasoning }),
+    signal: opts.signal,
   });
   if (!res.ok || !res.body) {
     throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);
@@ -120,8 +122,24 @@ export interface ChatSessionFull extends ChatSession {
   messages: Array<{ role: string; content: string }>;
 }
 
+export interface Settings {
+  customInstructions: string;
+  updatedAt: string;
+  todaySpendUsd: number;
+}
+
 export const api = {
   health: () => req("/api/health"),
+  settings: {
+    get: (): Promise<Settings> => req("/api/settings"),
+    set: (customInstructions: string): Promise<Settings> =>
+      req("/api/settings", { method: "POST", body: JSON.stringify({ customInstructions }) }),
+  },
+  brain: {
+    export: (): Promise<unknown> => req("/api/brain/export"),
+    import: (data: unknown): Promise<{ ok: boolean; restored: number }> =>
+      req("/api/brain/import", { method: "POST", body: JSON.stringify(data) }),
+  },
   chat: (message: string, history: Array<{ role: string; content: string }>): Promise<ChatTurn> =>
     req("/api/chat", { method: "POST", body: JSON.stringify({ message, history }) }),
   memories: (): Promise<Memory[]> => req("/api/memories"),
