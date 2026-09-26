@@ -86,6 +86,22 @@ function cleanStrArr(v: unknown, max = 10): string[] {
     .slice(0, max);
 }
 
+// Deterministic fallback: the extractor model sometimes returns no entities
+// (empty array), which leaves the knowledge graph permanently empty. Proper
+// nouns in the fact text are a reliable signal — people, places, orgs, pets.
+const ENTITY_STOPWORDS = new Set([
+  "user", "users", "assistant", "the", "a", "an", "this", "that",
+]);
+function heuristicEntities(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(/\b([A-Z][a-zA-Z]{2,})\b/g)) {
+    const w = m[1].toLowerCase();
+    if (!ENTITY_STOPWORDS.has(w) && !out.includes(w)) out.push(w);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+
 export async function memoryAdd(text: string, tags: string[] = [], entities: string[] = []): Promise<Memory> {
   return withLock(async () => {
     let embedding: number[] | undefined;
@@ -103,7 +119,12 @@ export async function memoryAdd(text: string, tags: string[] = [], entities: str
       id: uid(),
       text: String(text).slice(0, 2000),
       tags: cleanStrArr(tags, 8),
-      entities: cleanStrArr(entities, 10),
+      // Fallback: never store a memory with zero entities when the text
+      // names proper nouns — the knowledge graph depends on entities.
+      entities: (() => {
+        const e = cleanStrArr(entities, 10);
+        return e.length ? e : heuristicEntities(String(text));
+      })(),
       createdAt: now,
       updatedAt: now,
       validFrom: now,
