@@ -2,6 +2,9 @@
 # Dashboard: New -> Blueprint -> connect devilking7x/yaad -> Apply.
 # NEBIUS_API_KEY and TAVILY_API_KEY are marked sync:false, so Render
 # prompts for them securely at deploy time (never committed).
+# NOTE: free Render services use an ephemeral filesystem — memories stored in
+# MEMORY_DIR (~/.yaad) reset on redeploy/restart. Fine for the hackathon demo;
+# add a paid disk + MEMORY_DIR=/data/yaad for permanent memory.
 services:
   - type: web
     name: yaad-api
@@ -20,6 +23,8 @@ services:
         value: nvidia/nemotron-3-super-120b-a12b
       - key: NEBIUS_EMBEDDING_MODEL
         value: Qwen/Qwen3-Embedding-8B
+      - key: NEBIUS_VISION_MODEL
+        value: nvidia/Nemotron-3-Nano-Omni
       - key: YAAD_AUTO_REMEMBER
         value: 1
       # Hard daily spend guard so the $1 Token Factory balance can't blow up.
