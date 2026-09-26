@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, chatStream, type Memory, type Skill } from "./api";
+import { api, chatStream, type ChatSession, type Memory, type Reminder, type Skill } from "./api";
 
 interface Msg {
   role: "user" | "assistant";
@@ -21,6 +21,8 @@ const TOOL_LABELS: Record<string, string> = {
   deep_research: "gehri research kar raha hun (30-60s)…",
   read_page: "page padh raha hun…",
   run_skill: "skill chala raha hun…",
+  install_skill: "skill install kar raha hun…",
+  set_reminder: "reminder laga raha hun…",
   see_image: "tasveer dekh raha hun…",
 };
 
@@ -28,6 +30,7 @@ const QUICK_ACTIONS = [
   "Mere baare me kya yaad hai tumhe?",
   "Good morning! Mera briefing do.",
   "Aaj ki top tech news batao.",
+  "Kal subah 8 baje gym yaad dilana.",
 ];
 
 function shortModel(m: string): string {
@@ -51,7 +54,14 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [memories, setMemories] = useState<Memory[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [tab, setTab] = useState<"memory" | "skills">("memory");
+  const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [tab, setTab] = useState<"memory" | "skills" | "reminders">("memory");
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [skillName, setSkillName] = useState("");
+  const [skillUrl, setSkillUrl] = useState("");
+  const [skillMsg, setSkillMsg] = useState("");
   const [serverOk, setServerOk] = useState<boolean | null>(null);
   const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
   const [listening, setListening] = useState(false);
@@ -65,6 +75,32 @@ export default function App() {
     api.health().then(() => setServerOk(true)).catch(() => setServerOk(false));
     api.memories().then(setMemories).catch(() => {});
     api.skills().then(setSkills).catch(() => {});
+    api.reminders.list().then(setReminders).catch(() => {});
+    api.sessions.list().then(setSessions).catch(() => {});
+  }, []);
+
+  // Reminder scheduler: poll every 30s, fire browser notification + in-chat nudge.
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const all = await api.reminders.list();
+        setReminders(all.filter((r) => !r.done));
+        const now = new Date().toISOString();
+        for (const r of all) {
+          if (r.done || r.remindAt > now) continue;
+          await api.reminders.done(r.id).catch(() => {});
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              new Notification("Yaad ⏰", { body: r.text });
+            } catch {}
+          }
+          setMessages((p) => [...p, { role: "assistant", content: `⏰ **Yaad dila raha hun:** ${r.text}` }]);
+        }
+      } catch {}
+    };
+    tick();
+    const t = setInterval(tick, 30000);
+    return () => clearInterval(t);
   }, []);
 
   useEffect(() => {
@@ -99,6 +135,69 @@ export default function App() {
     typeof window !== "undefined" &&
     ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
+  function persistTurn(userText: string, assistantText: string) {
+    const turn = [
+      { role: "user", content: userText },
+      { role: "assistant", content: assistantText },
+    ];
+    if (activeSessionId) {
+      api.sessions.append(activeSessionId, turn).catch(() => {});
+    } else if (userText) {
+      api.sessions
+        .create(userText.slice(0, 60), turn)
+        .then((s) => {
+          setActiveSessionId(s.id);
+          api.sessions.list().then(setSessions).catch(() => {});
+        })
+        .catch(() => {});
+    }
+  }
+
+  function newChat() {
+    setMessages([{ role: "assistant", content: "Nayi shuruaat ✨ Kya baat karein?" }]);
+    setActiveSessionId(null);
+    setDrawerOpen(false);
+  }
+
+  async function loadSession(id: string) {
+    try {
+      const s = await api.sessions.get(id);
+      setMessages(
+        s.messages.map((m) => ({ role: m.role as "user" | "assistant", content: m.content }))
+      );
+      setActiveSessionId(id);
+      setDrawerOpen(false);
+    } catch {
+      alert("Session load nahi hui");
+    }
+  }
+
+  async function deleteSession(id: string) {
+    if (!confirm("Ye chat delete karun?")) return;
+    try {
+      await api.sessions.remove(id);
+      setSessions((p) => p.filter((s) => s.id !== id));
+      if (activeSessionId === id) newChat();
+    } catch {}
+  }
+
+  async function handleInstallSkill() {
+    if (!skillName.trim() || !skillUrl.trim()) {
+      setSkillMsg("Naam aur URL dono chahiye");
+      return;
+    }
+    setSkillMsg("Install ho raha hai…");
+    try {
+      const r = (await api.installSkill(skillName.trim(), skillUrl.trim())) as { name: string };
+      setSkillMsg(`✅ '${r.name}' install ho gaya`);
+      setSkillName("");
+      setSkillUrl("");
+      api.skills().then(setSkills).catch(() => {});
+    } catch (e) {
+      setSkillMsg(`❌ ${(e as Error).message}`);
+    }
+  }
+
   function exportChat() {
     const lines = messages
       .filter((m) => m.content.trim())
@@ -117,6 +216,9 @@ export default function App() {
     const text = (preset ?? input).trim();
     if (busy) return;
     if (!text && !pendingImage) return;
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
     const img = pendingImage;
     setInput("");
     setPendingImage(null);
@@ -147,13 +249,16 @@ export default function App() {
         } else if (e.type === "done") {
           const bits = [`${shortModel(e.model)}`, `${e.steps} steps`, `${fmtTokens(e.usage.total_tokens)} tokens`];
           if (e.costUsd != null) bits.push(`$${e.costUsd.toFixed(4)}`);
-          patch((m) => ({ ...m, content: e.reply || acc, meta: bits.join(" · ") }));
+          const finalReply = e.reply || acc;
+          patch((m) => ({ ...m, content: finalReply, meta: bits.join(" · ") }));
           setSession((s) => ({
             tokens: s.tokens + e.usage.total_tokens,
             costUsd: s.costUsd == null && e.costUsd == null ? null : (s.costUsd ?? 0) + (e.costUsd ?? 0),
           }));
           setStatus("");
           refreshMemories();
+          // Persist this turn into the active session (or create one).
+          persistTurn(text, finalReply);
         } else if (e.type === "error") {
           patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${e.error}` }));
           setStatus("");
@@ -194,9 +299,18 @@ export default function App() {
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0f" }}>
       {/* Header */}
       <header className="border-b gold-border px-4 py-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold gold-text tracking-tight">Yaad</h1>
-          <p className="text-xs text-neutral-400">your personal AI that remembers</p>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="text-neutral-300 hover:text-yellow-400 text-xl leading-none"
+            title="Chat history"
+          >
+            ☰
+          </button>
+          <div>
+            <h1 className="text-2xl font-bold gold-text tracking-tight">Yaad</h1>
+            <p className="text-xs text-neutral-400">your personal AI that remembers</p>
+          </div>
         </div>
         <div className="flex items-center gap-3 text-xs">
           <button onClick={exportChat} className="text-neutral-400 hover:text-yellow-400" title="Chat export (Markdown)">
@@ -210,6 +324,56 @@ export default function App() {
           </span>
         </div>
       </header>
+
+      {/* Chat history drawer */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 flex">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
+          <div className="relative w-72 max-w-[85vw] bg-neutral-950 border-r gold-border flex flex-col">
+            <div className="p-3 border-b gold-border flex items-center justify-between">
+              <span className="font-semibold gold-text">Chats</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-neutral-500 hover:text-yellow-400">✕</button>
+            </div>
+            <div className="p-3">
+              <button
+                onClick={newChat}
+                className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-semibold rounded-xl py-2 text-sm"
+              >
+                ＋ New chat
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto chat-scroll px-3 pb-3 space-y-1.5">
+              {sessions.length === 0 ? (
+                <p className="text-xs text-neutral-600 p-2">Abhi koi purani chat nahi.</p>
+              ) : (
+                sessions.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`group flex items-center gap-2 rounded-xl px-2.5 py-2 text-sm cursor-pointer border ${
+                      activeSessionId === s.id
+                        ? "bg-neutral-900 border-yellow-700 text-neutral-100"
+                        : "border-transparent text-neutral-400 hover:bg-neutral-900"
+                    }`}
+                    onClick={() => loadSession(s.id)}
+                  >
+                    <span className="flex-1 truncate">{s.title}</span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteSession(s.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-neutral-600 hover:text-red-400 text-xs"
+                      title="Delete"
+                    >
+                      🗑
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex flex-col md:flex-row max-w-6xl w-full mx-auto">
         {/* Chat */}
@@ -342,7 +506,13 @@ export default function App() {
         {/* Side panel */}
         <aside className="md:w-80 border-t md:border-t-0 md:border-l gold-border flex flex-col max-h-[40vh] md:max-h-none">
           <div className="flex border-b gold-border">
-            {(["memory", "skills"] as const).map((t) => (
+            {(
+              [
+                ["memory", `Memory (${memories.length})`],
+                ["skills", `Skills (${skills.length})`],
+                ["reminders", `Reminders (${reminders.length})`],
+              ] as const
+            ).map(([t, label]) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
@@ -350,7 +520,7 @@ export default function App() {
                   tab === t ? "gold-text border-b-2 border-yellow-600" : "text-neutral-500"
                 }`}
               >
-                {t === "memory" ? `Memory (${memories.length})` : `Skills (${skills.length})`}
+                {label}
               </button>
             ))}
           </div>
@@ -373,20 +543,72 @@ export default function App() {
                   </div>
                 ))
               ))}
-            {tab === "skills" &&
-              (skills.length === 0 ? (
+            {tab === "skills" && (
+              <>
+                {skills.length === 0 ? (
+                  <p className="text-xs text-neutral-600 p-2">
+                    Koi skill pack nahi. Neeche URL se install karo ya <code>skills/</code> me markdown files daalo.
+                  </p>
+                ) : (
+                  skills.map((s) => (
+                    <div key={s.name} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
+                      <p className="font-semibold gold-text">{s.name}</p>
+                      <p className="text-neutral-400 mt-0.5">{s.description}</p>
+                      <p className="text-neutral-600 mt-0.5 italic">{s.when}</p>
+                    </div>
+                  ))
+                )}
+                <div className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs space-y-2 mt-1">
+                  <p className="font-semibold gold-text">＋ URL se skill install karo</p>
+                  <input
+                    value={skillName}
+                    onChange={(e) => setSkillName(e.target.value)}
+                    placeholder="naam, jaise workout-coach"
+                    className="w-full bg-neutral-800 rounded-lg px-2 py-1.5 text-neutral-200 placeholder:text-neutral-600 outline-none"
+                  />
+                  <input
+                    value={skillUrl}
+                    onChange={(e) => setSkillUrl(e.target.value)}
+                    placeholder="raw SKILL.md URL (GitHub raw link)"
+                    className="w-full bg-neutral-800 rounded-lg px-2 py-1.5 text-neutral-200 placeholder:text-neutral-600 outline-none"
+                  />
+                  <button
+                    onClick={handleInstallSkill}
+                    className="w-full bg-yellow-600 hover:bg-yellow-500 text-black font-semibold rounded-lg py-1.5"
+                  >
+                    Install
+                  </button>
+                  {skillMsg && <p className="text-neutral-400">{skillMsg}</p>}
+                </div>
+              </>
+            )}
+            {tab === "reminders" && (
+              <>
                 <p className="text-xs text-neutral-600 p-2">
-                  Koi skill pack nahi. <code>skills/</code> me markdown files daalo.
+                  “Mujhe kal subah 8 baje yaad dilana” — bolo, Yaad khud reminder laga dega. Tab khula rakho ⏰
                 </p>
-              ) : (
-                skills.map((s) => (
-                  <div key={s.name} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
-                    <p className="font-semibold gold-text">{s.name}</p>
-                    <p className="text-neutral-400 mt-0.5">{s.description}</p>
-                    <p className="text-neutral-600 mt-0.5 italic">{s.when}</p>
-                  </div>
-                ))
-              ))}
+                {reminders.length === 0 ? (
+                  <p className="text-xs text-neutral-600 p-2">Koi active reminder nahi.</p>
+                ) : (
+                  reminders.map((r) => (
+                    <div key={r.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
+                      <p className="text-neutral-200">⏰ {r.text}</p>
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-neutral-500">
+                          {new Date(r.remindAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
+                        </span>
+                        <button
+                          onClick={() => api.reminders.remove(r.id).then(() => api.reminders.list().then(setReminders)).catch(() => {})}
+                          className="text-neutral-500 hover:text-red-400"
+                        >
+                          hatao
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
           </div>
         </aside>
       </div>

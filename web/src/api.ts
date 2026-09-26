@@ -96,6 +96,25 @@ export async function chatStream(
   dispatch();
 }
 
+export interface Reminder {
+  id: string;
+  text: string;
+  remindAt: string;
+  createdAt: string;
+  done: boolean;
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatSessionFull extends ChatSession {
+  messages: Array<{ role: string; content: string }>;
+}
+
 export const api = {
   health: () => req("/api/health"),
   chat: (message: string, history: Array<{ role: string; content: string }>): Promise<ChatTurn> =>
@@ -103,4 +122,20 @@ export const api = {
   memories: (): Promise<Memory[]> => req("/api/memories"),
   deleteMemory: (id: string) => req(`/api/memories/${id}`, { method: "DELETE" }),
   skills: (): Promise<Skill[]> => req("/api/skills"),
+  installSkill: (name: string, url: string) =>
+    req("/api/skills/install", { method: "POST", body: JSON.stringify({ name, url }) }),
+  reminders: {
+    list: (): Promise<Reminder[]> => req("/api/reminders"),
+    done: (id: string) => req(`/api/reminders/${id}/done`, { method: "POST" }),
+    remove: (id: string) => req(`/api/reminders/${id}`, { method: "DELETE" }),
+  },
+  sessions: {
+    list: (): Promise<ChatSession[]> => req("/api/sessions"),
+    create: (title: string, messages: Array<{ role: string; content: string }>): Promise<ChatSession> =>
+      req("/api/sessions", { method: "POST", body: JSON.stringify({ title, messages }) }),
+    get: (id: string): Promise<ChatSessionFull> => req(`/api/sessions/${id}`),
+    append: (id: string, messages: Array<{ role: string; content: string }>) =>
+      req(`/api/sessions/${id}/messages`, { method: "POST", body: JSON.stringify({ messages }) }),
+    remove: (id: string) => req(`/api/sessions/${id}`, { method: "DELETE" }),
+  },
 };

@@ -32,6 +32,12 @@ you ──▶ web chat UI ──▶ Yaad server ──▶ Nebius Token Factory �
 5. **Learn** — after every turn, a background pass extracts durable facts into long-term
    memory automatically (`YAAD_AUTO_REMEMBER`).
 6. **See** — share a photo; a Nemotron vision model describes it and Yaad remembers it.
+7. **Remind** — "kal subah 8 baje gym yaad dilana" → `set_reminder` tool, browser
+   notification + in-chat nudge when the time comes. This is what makes Yaad proactive,
+   not reactive.
+8. **Grow** — paste any raw SKILL.md URL and Yaad installs it as a new capability
+   (`install_skill`). Every chat is auto-saved to a session history (drawer ☰) —
+   new chat, reload, delete, just like a real product.
 
 **Extras for the demo:** 🎙 voice input (hi-IN), 💰 per-turn + session token/cost meter.
 

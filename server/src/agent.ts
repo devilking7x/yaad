@@ -1,7 +1,8 @@
 import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { memoryAdd, memorySearch } from "./memory.js";
-import { getSkill, listSkills } from "./skills.js";
+import { addReminder } from "./reminders.js";
+import { getSkill, installSkill, listSkills } from "./skills.js";
 import { deepResearch, readPage, webSearch } from "./tavily.js";
 import { describeImage } from "./vision.js";
 
@@ -89,6 +90,38 @@ const TOOLS: ChatTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "install_skill",
+      description:
+        "Install a new skill pack from a URL (e.g. a raw SKILL.md file on GitHub). Use when the user shares a skill link or asks to add a capability.",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Short name, e.g. 'workout-coach'." },
+          url: { type: "string", description: "Direct URL to the markdown skill pack." },
+        },
+        required: ["name", "url"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_reminder",
+      description:
+        "Set a reminder — Yaad will nudge the user at that time (needs the app/PWA open). Convert the user's words to an ISO 8601 datetime using the current time given in your instructions.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "What to remind about." },
+          remind_at: { type: "string", description: "ISO 8601 datetime, e.g. '2026-09-27T08:00:00+05:30'." },
+        },
+        required: ["text", "remind_at"],
+      },
+    },
+  },
 ];
 
 export type AgentEvent =
@@ -138,6 +171,14 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       if (!skill) return { error: `Unknown skill '${args.name}'. Available: ${listSkills().map((s) => s.name).join(", ")}` };
       return { name: skill.name, instructions: skill.instructions };
     }
+    case "install_skill": {
+      const s = await installSkill(args.name, args.url);
+      return { installed: true, name: s.name, description: s.description };
+    }
+    case "set_reminder": {
+      const r = addReminder(args.text, args.remind_at);
+      return { set: true, id: r.id, text: r.text, remindAt: r.remindAt };
+    }
     default:
       return { error: `Unknown tool ${name}` };
   }
@@ -149,17 +190,23 @@ function systemPrompt(): string {
     skills.length > 0
       ? skills.map((s) => `- ${s.name}: ${s.description} (${s.when})`).join("\n")
       : "(no skills installed — add markdown packs to the skills/ directory)";
+  const nowIST = new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" });
   return [
     "You are Yaad, a personal AI assistant that remembers its user.",
     "You are private: the user's data stays in their own memory store, never shared.",
+    `Current time: ${nowIST} (IST, Asia/Kolkata).`,
     "",
     "MEMORY: At the start of a conversation, relevant memories are injected below.",
     "Use `remember` to save durable facts (preferences, people, decisions, routines).",
     "Use `recall` when you need more context.",
     "Never claim to remember something you were not given.",
     "",
+    "REMINDERS: use `set_reminder` when the user asks to be reminded. Convert their",
+    "words to an ISO 8601 datetime with +05:30 offset, using the current time above.",
+    "",
     "SKILLS (reusable packs you can run with `run_skill`):",
     skillCatalog,
+    "You can also `install_skill` from a URL the user shares.",
     "",
     "TOOLS: `web_search` for quick current facts; `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
     "VISION: the user can share images — they are described by a vision model and auto-saved to memory (photos, receipts, documents).",

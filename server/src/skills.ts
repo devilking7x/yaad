@@ -45,3 +45,26 @@ export function listSkills(): Skill[] {
 export function getSkill(name: string): Skill | undefined {
   return listSkills().find((s) => s.name === name);
 }
+
+/**
+ * Install a skill pack from a URL (e.g. a raw SKILL.md on GitHub).
+ * Validates the front-matter, then saves it into the skills directory.
+ */
+export async function installSkill(name: string, url: string): Promise<Skill> {
+  const clean = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!clean) throw new Error("Give the skill a valid name (letters, numbers, dashes)");
+  if (!/^https?:\/\//i.test(url)) throw new Error("URL must start with http(s)");
+  const res = await fetch(url, { headers: { "User-Agent": "yaad/1.0" } });
+  if (!res.ok) throw new Error(`Could not fetch that URL (HTTP ${res.status})`);
+  const md = await res.text();
+  const skill = parseSkill(`${clean}.md`, md);
+  if (!skill || !skill.instructions || skill.instructions.length < 50) {
+    throw new Error("That URL doesn't look like a skill pack (needs front-matter + instructions)");
+  }
+  // Rewrite the front-matter name so it matches the installed filename (no duplicates).
+  const stamped = md.replace(/^name:\s*.*$/m, `name: ${clean}`);
+  const dir = path.resolve(config.skillsDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${clean}.md`), stamped, "utf-8");
+  return { ...skill, name: clean };
+}

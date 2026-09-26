@@ -4,7 +4,15 @@ import { runAgent, runAgentStream } from "./agent.js";
 import { assertConfigured, config } from "./config.js";
 import { memoryDelete, memoryExport, memoryGet, memoryList } from "./memory.js";
 import { listModels } from "./nebius.js";
-import { listSkills } from "./skills.js";
+import { addReminder, completeReminder, deleteReminder, listReminders } from "./reminders.js";
+import {
+  appendSessionMessages,
+  createSession,
+  deleteSession,
+  getSession,
+  listSessions,
+} from "./sessions.js";
+import { installSkill, listSkills } from "./skills.js";
 
 const app = express();
 app.use(cors());
@@ -96,6 +104,87 @@ app.delete("/api/memories/:id", (req, res) => {
 });
 
 app.get("/api/skills", (_req, res) => res.json(listSkills()));
+
+app.post("/api/skills/install", async (req, res) => {
+  try {
+    const { name, url } = req.body as { name?: string; url?: string };
+    if (!name || !url) {
+      res.status(400).json({ error: "Body must include { name, url }" });
+      return;
+    }
+    const skill = await installSkill(name, url);
+    res.json({ installed: true, name: skill.name, description: skill.description });
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+// --- Reminders ---------------------------------------------------------------
+
+app.get("/api/reminders", (_req, res) => {
+  res.json(listReminders());
+});
+
+app.post("/api/reminders", (req, res) => {
+  try {
+    const { text, remindAt } = req.body as { text?: string; remindAt?: string };
+    if (!text || !remindAt) {
+      res.status(400).json({ error: "Body must include { text, remindAt }" });
+      return;
+    }
+    res.json(addReminder(text, remindAt));
+  } catch (e) {
+    res.status(400).json({ error: (e as Error).message });
+  }
+});
+
+app.post("/api/reminders/:id/done", (req, res) => {
+  res.json({ ok: completeReminder(req.params.id) });
+});
+
+app.delete("/api/reminders/:id", (req, res) => {
+  res.json({ ok: deleteReminder(req.params.id) });
+});
+
+// --- Sessions ----------------------------------------------------------------
+
+app.get("/api/sessions", (_req, res) => {
+  res.json(listSessions());
+});
+
+app.post("/api/sessions", (req, res) => {
+  const { title, messages } = req.body as { title?: string; messages?: Array<{ role: string; content: string }> };
+  const clean = (messages ?? [])
+    .filter((m) => ["user", "assistant"].includes(m.role))
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  res.json(createSession(title ?? "New chat", clean));
+});
+
+app.get("/api/sessions/:id", (req, res) => {
+  const s = getSession(req.params.id);
+  if (!s) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  res.json(s);
+});
+
+app.post("/api/sessions/:id/messages", (req, res) => {
+  const { messages } = req.body as { messages?: Array<{ role: string; content: string }> };
+  const clean = (messages ?? [])
+    .filter((m) => ["user", "assistant"].includes(m.role))
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const s = appendSessionMessages(req.params.id, clean);
+  if (!s) {
+    res.status(404).json({ error: "Session not found" });
+    return;
+  }
+  res.json({ ok: true });
+});
+
+app.delete("/api/sessions/:id", (req, res) => {
+  res.json({ ok: deleteSession(req.params.id) });
+});
 
 app.listen(config.port, () => {
   console.log(`Yaad server on http://localhost:${config.port}`);
