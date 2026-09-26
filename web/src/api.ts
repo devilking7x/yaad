@@ -41,12 +41,13 @@ export type StreamEvent =
 export async function chatStream(
   message: string,
   history: Array<{ role: string; content: string }>,
-  onEvent: (e: StreamEvent) => void
+  onEvent: (e: StreamEvent) => void,
+  image?: string
 ): Promise<void> {
   const res = await fetch(`${API}/api/chat/stream`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, history }),
+    body: JSON.stringify({ message, history, ...(image ? { image } : {}) }),
   });
   if (!res.ok || !res.body) {
     throw new Error((await res.json().catch(() => ({}))).error ?? `HTTP ${res.status}`);

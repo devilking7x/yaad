@@ -6,6 +6,7 @@ interface Msg {
   content: string;
   meta?: string;
   thinking?: string;
+  image?: string;
 }
 
 interface SessionUsage {
@@ -17,7 +18,10 @@ const TOOL_LABELS: Record<string, string> = {
   remember: "yaad kar raha hun…",
   recall: "yaadein dhoondh raha hun…",
   web_search: "web pe dekh raha hun…",
+  deep_research: "gehri research kar raha hun (30-60s)…",
+  read_page: "page padh raha hun…",
   run_skill: "skill chala raha hun…",
+  see_image: "tasveer dekh raha hun…",
 };
 
 const QUICK_ACTIONS = [
@@ -52,8 +56,10 @@ export default function App() {
   const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
   const [listening, setListening] = useState(false);
   const [welcomeDismissed, setWelcomeDismissed] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<any>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.health().then(() => setServerOk(true)).catch(() => setServerOk(false));
@@ -109,12 +115,17 @@ export default function App() {
 
   async function send(preset?: string) {
     const text = (preset ?? input).trim();
-    if (!text || busy) return;
+    if (busy) return;
+    if (!text && !pendingImage) return;
+    const img = pendingImage;
     setInput("");
+    setPendingImage(null);
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    setMessages((p) => [...p, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    const userMsg: Msg = { role: "user", content: text || "(tasveer bheji)" };
+    if (img) userMsg.image = img;
+    setMessages((p) => [...p, userMsg, { role: "assistant", content: "" }]);
     setBusy(true);
-    setStatus("soch raha hun…");
+    setStatus(img && !text ? "tasveer dekh raha hun…" : "soch raha hun…");
     const idx = messages.length + 1; // placeholder assistant message
 
     const patch = (fn: (m: Msg) => Msg) =>
@@ -123,7 +134,7 @@ export default function App() {
     try {
       let acc = "";
       let think = "";
-      await chatStream(text, history, (e) => {
+      await chatStream(text || "Is tasveer ke baare me batao aur yaad rakho.", history, (e) => {
         if (e.type === "token") {
           acc += e.token;
           patch((m) => ({ ...m, content: acc }));
@@ -147,13 +158,29 @@ export default function App() {
           patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${e.error}` }));
           setStatus("");
         }
-      });
+      },
+        img ?? undefined
+      );
     } catch (err) {
       patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${(err as Error).message}` }));
     } finally {
       setBusy(false);
       setStatus("");
     }
+  }
+
+  function onPickImage(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 4_000_000) {
+      setStatus("Tasveer 4MB se chhoti honi chahiye");
+      setTimeout(() => setStatus(""), 2500);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setPendingImage(reader.result as string);
+    reader.readAsDataURL(f);
+    e.target.value = "";
   }
 
   async function forget(id: string) {
@@ -223,6 +250,9 @@ export default function App() {
                       </p>
                     </details>
                   )}
+                  {m.image && (
+                    <img src={m.image} alt="shared" className="rounded-xl mb-2 max-h-48 object-contain" />
+                  )}
                   {m.content}
                   {m.meta && <div className="text-[10px] text-neutral-500 mt-1">{m.meta}</div>}
                 </div>
@@ -239,6 +269,17 @@ export default function App() {
           </div>
 
           <div className="border-t gold-border p-3">
+            {pendingImage && (
+              <div className="relative inline-block mb-2">
+                <img src={pendingImage} alt="preview" className="h-20 rounded-xl border gold-border" />
+                <button
+                  onClick={() => setPendingImage(null)}
+                  className="absolute -top-2 -right-2 bg-neutral-800 border gold-border rounded-full w-6 h-6 text-xs"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
             {!busy && messages.length <= 3 && (
               <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
                 {QUICK_ACTIONS.map((q) => (
@@ -253,6 +294,14 @@ export default function App() {
               </div>
             )}
             <div className="flex gap-2">
+              <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
+              <button
+                onClick={() => fileRef.current?.click()}
+                title="Tasveer bhejo — Yaad yaad rakhega"
+                className="rounded-xl px-3 py-2.5 text-sm border gold-border bg-neutral-900 text-neutral-300"
+              >
+                📷
+              </button>
               {voiceSupported && (
                 <button
                   onClick={toggleVoice}
@@ -271,7 +320,7 @@ export default function App() {
               />
               <button
                 onClick={() => send()}
-                disabled={busy || !input.trim()}
+                disabled={busy || (!input.trim() && !pendingImage)}
                 className="rounded-xl px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
                 style={{ background: "linear-gradient(135deg,#f6d365,#d4a017)" }}
               >

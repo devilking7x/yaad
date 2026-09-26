@@ -8,7 +8,7 @@ import { listSkills } from "./skills.js";
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "12mb" })); // images ride along as data URLs
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -31,13 +31,17 @@ app.get("/api/models", async (_req, res) => {
 app.post("/api/chat", async (req, res) => {
   try {
     assertConfigured();
-    const { message, history } = req.body as { message?: string; history?: Array<{ role: string; content: string }> };
+    const { message, history, image } = req.body as {
+      message?: string;
+      history?: Array<{ role: string; content: string }>;
+      image?: string;
+    };
     if (!message || typeof message !== "string") {
       res.status(400).json({ error: "Body must include { message: string }" });
       return;
     }
     const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
-    const result = await runAgent(message, safeHistory as never);
+    const result = await runAgent(message, safeHistory as never, { image });
     res.json(result);
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
@@ -52,7 +56,11 @@ app.post("/api/chat/stream", async (req, res) => {
     res.status(500).json({ error: (e as Error).message });
     return;
   }
-  const { message, history } = req.body as { message?: string; history?: Array<{ role: string; content: string }> };
+  const { message, history, image } = req.body as {
+    message?: string;
+    history?: Array<{ role: string; content: string }>;
+    image?: string;
+  };
   if (!message || typeof message !== "string") {
     res.status(400).json({ error: "Body must include { message: string }" });
     return;
@@ -68,7 +76,7 @@ app.post("/api/chat/stream", async (req, res) => {
     res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
   };
   try {
-    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e));
+    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), { image });
   } catch (e) {
     send("error", { error: (e as Error).message });
   }

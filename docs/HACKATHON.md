@@ -41,4 +41,6 @@ Advanced differentiators:
 
 ## Also eligible
 
-- **Best Use of Tavily ($3,000):** Tavily powers `web_search`, deeply integrated into the agent loop.
+- **Best Use of Tavily ($3,000):** Tavily is the agent's whole web layer, used three ways —
+  `web_search` (advanced depth), `read_page` (Tavily /extract for full-page markdown),
+  and `deep_research` (advanced search → extract top pages → cited synthesis).

@@ -2,7 +2,8 @@ import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { memoryAdd, memorySearch } from "./memory.js";
 import { getSkill, listSkills } from "./skills.js";
-import { webSearch } from "./tavily.js";
+import { deepResearch, readPage, webSearch } from "./tavily.js";
+import { describeImage } from "./vision.js";
 
 // Yaad agent: recall memory -> pick skills -> reason with Nemotron -> act with tools.
 // Streams tokens live, tracks token usage + estimated cost, and proactively
@@ -40,11 +41,39 @@ const TOOLS: ChatTool[] = [
     type: "function",
     function: {
       name: "web_search",
-      description: "Search the live web (Tavily) for current facts, docs, prices, news.",
+      description: "Quick web search (Tavily, advanced depth) for current facts, docs, prices, news.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
         required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "deep_research",
+      description:
+        "Deep multi-source research for complex questions (Tavily search + page extraction + synthesis, takes ~30-60s). Returns a cited summary.",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string", description: "The research question." } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_page",
+      description: "Read a full web page as markdown (Tavily extract). Use when a search snippet isn't enough.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string" },
+          query: { type: "string", description: "Optional: focus the extraction on this." },
+        },
+        required: ["url"],
       },
     },
   },
@@ -98,6 +127,12 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       return (await memorySearch(args.query, 5)).map((m) => ({ id: m.id, text: m.text, tags: m.tags }));
     case "web_search":
       return webSearch(args.query, 5);
+    case "deep_research": {
+      const r = await deepResearch(args.query);
+      return { summary: r.summary, sources: r.sources };
+    }
+    case "read_page":
+      return { content: await readPage(args.url, args.query ?? "") };
     case "run_skill": {
       const skill = getSkill(args.name);
       if (!skill) return { error: `Unknown skill '${args.name}'. Available: ${listSkills().map((s) => s.name).join(", ")}` };
@@ -126,7 +161,8 @@ function systemPrompt(): string {
     "SKILLS (reusable packs you can run with `run_skill`):",
     skillCatalog,
     "",
-    "TOOLS: `web_search` for anything current (news, prices, docs, versions).",
+    "TOOLS: `web_search` for quick current facts; `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
+    "VISION: the user can share images — they are described by a vision model and auto-saved to memory (photos, receipts, documents).",
     "Be warm, concise, and specific. Answer in the user's language.",
   ].join("\n");
 }
@@ -180,8 +216,22 @@ const MAX_STEPS = 6;
 export async function runAgentStream(
   userMessage: string,
   history: ChatMessage[],
-  onEvent: (e: AgentEvent) => void
+  onEvent: (e: AgentEvent) => void,
+  opts: { image?: string } = {}
 ): Promise<void> {
+  // Vision: describe a shared image and fold it into memory before reasoning.
+  let imageNote = "";
+  if (opts.image) {
+    onEvent({ type: "tool", name: "see_image" });
+    try {
+      const desc = await describeImage(opts.image);
+      imageNote = `\n\n[The user shared an image. Vision model description: ${desc}]`;
+      await memoryAdd(`User shared a photo: ${desc.slice(0, 300)}`, ["photo", "auto"]).catch(() => {});
+    } catch (e) {
+      imageNote = `\n\n[The user shared an image, but vision failed: ${(e as Error).message}]`;
+    }
+  }
+
   const recalled = await memorySearch(userMessage, 5);
   const memoryBlock =
     recalled.length > 0
@@ -191,7 +241,7 @@ export async function runAgentStream(
   const messages: ChatMessage[] = [
     { role: "system", content: systemPrompt() + memoryBlock },
     ...history,
-    { role: "user", content: userMessage },
+    { role: "user", content: userMessage + imageNote },
   ];
 
   let steps = 0;
@@ -255,7 +305,11 @@ export interface TurnResult {
 }
 
 /** Non-streaming wrapper (kept for simple clients). */
-export async function runAgent(userMessage: string, history: ChatMessage[] = []): Promise<TurnResult> {
+export async function runAgent(
+  userMessage: string,
+  history: ChatMessage[] = [],
+  opts: { image?: string } = {}
+): Promise<TurnResult> {
   let reply = "";
   let model = "";
   let steps = 0;

@@ -41,6 +41,7 @@ export const config = {
   fastModel: process.env.NEBIUS_FAST_MODEL ?? "",
   tavilyApiKey: process.env.TAVILY_API_KEY ?? "",
   embeddingModel: process.env.NEBIUS_EMBEDDING_MODEL ?? "",
+  visionModel: process.env.NEBIUS_VISION_MODEL ?? "",
   // Optional per-1M-token prices (USD) for the cost meter — copy from Token Factory pricing.
   priceInputPer1M: Number(process.env.NEBIUS_PRICE_INPUT_PER_1M ?? 0),
   priceOutputPer1M: Number(process.env.NEBIUS_PRICE_OUTPUT_PER_1M ?? 0),
