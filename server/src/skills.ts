@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
-import { assertPublicUrl, logSecurity } from "./security.js";
+import { logSecurity, safeFetch } from "./security.js";
 
 // Skill packs: markdown files with a small front-matter header.
 // Format:
@@ -54,10 +54,9 @@ export function getSkill(name: string): Skill | undefined {
 export async function installSkill(name: string, url: string): Promise<Skill> {
   const clean = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   if (!clean) throw new Error("Give the skill a valid name (letters, numbers, dashes)");
-  // SSRF guard: the server fetches this URL itself, so private/internal
-  // addresses are never allowed.
-  await assertPublicUrl(url);
-  const res = await fetch(url, {
+  // SSRF guard: safeFetch validates the URL AND every redirect hop,
+  // so a 302 to an internal address can never slip through.
+  const res = await safeFetch(url, {
     headers: { "User-Agent": "yaad/1.0" },
     signal: AbortSignal.timeout(30_000),
   });

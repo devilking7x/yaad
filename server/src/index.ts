@@ -19,6 +19,7 @@ import { todaySpendUsd } from "./spend.js";
 
 const app = express();
 app.disable("x-powered-by");
+app.set("trust proxy", 1); // correct req.ip behind the serverless proxy
 app.use(securityHeaders);
 app.use(
   cors(
@@ -27,7 +28,7 @@ app.use(
       : { origin: config.corsOrigin.split(",").map((s) => s.trim()) }
   )
 );
-app.use(express.json({ limit: "12mb" })); // images ride along as data URLs
+app.use(express.json({ limit: "4mb" })); // images ride along as data URLs (2MB cap enforced per-image)
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -50,6 +51,23 @@ app.use("/api", (req, res, next) => {
 // Each limiter gets its own counter map so chat/API budgets stay independent.
 function rateLimit(max: number, windowMs: number, label: string) {
   const hits = new Map<string, number[]>();
+  // Hygiene: expired buckets are swept every minute and the map is capped,
+  // so a flood of unique IPs can't grow memory without bound.
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, arr] of hits) {
+      const fresh = arr.filter((t) => now - t < windowMs);
+      if (fresh.length) hits.set(ip, fresh);
+      else hits.delete(ip);
+    }
+    if (hits.size > 10_000) {
+      let drop = hits.size - 10_000;
+      for (const ip of hits.keys()) {
+        hits.delete(ip);
+        if (--drop <= 0) break;
+      }
+    }
+  }, 60_000).unref();
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const ip = req.ip ?? "unknown";
     const now = Date.now();
@@ -236,12 +254,17 @@ app.get("/api/sessions", (_req, res) => {
   res.json(listSessions());
 });
 
+const MAX_STORED_MSG = 12_000; // mirrors the chat input cap
+function cleanSessionMessages(messages: Array<{ role: string; content: string }> | undefined) {
+  return (messages ?? [])
+    .filter((m) => ["user", "assistant"].includes(m.role) && typeof m.content === "string")
+    .slice(-MAX_HISTORY)
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content.slice(0, MAX_STORED_MSG) }));
+}
+
 app.post("/api/sessions", (req, res) => {
   const { title, messages } = req.body as { title?: string; messages?: Array<{ role: string; content: string }> };
-  const clean = (messages ?? [])
-    .filter((m) => ["user", "assistant"].includes(m.role))
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-  res.json(createSession(title ?? "New chat", clean));
+  res.json(createSession(String(title ?? "New chat").slice(0, 120), cleanSessionMessages(messages)));
 });
 
 app.get("/api/sessions/:id", (req, res) => {
@@ -259,9 +282,7 @@ app.get("/api/sessions/:id", (req, res) => {
 
 app.post("/api/sessions/:id/messages", (req, res) => {
   const { messages } = req.body as { messages?: Array<{ role: string; content: string }> };
-  const clean = (messages ?? [])
-    .filter((m) => ["user", "assistant"].includes(m.role))
-    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const clean = cleanSessionMessages(messages);
   try {
     const s = appendSessionMessages(req.params.id, clean);
     if (!s) {
@@ -284,9 +305,15 @@ app.get("/api/settings", (_req, res) => {
   res.json({ ...getSettings(), todaySpendUsd: todaySpendUsd() });
 });
 
+const MAX_INSTRUCTIONS = 2_000;
 app.post("/api/settings", (req, res) => {
   const { customInstructions } = req.body as { customInstructions?: string };
-  res.json(setSettings(customInstructions ?? ""));
+  const text = String(customInstructions ?? "");
+  if (text.length > MAX_INSTRUCTIONS) {
+    res.status(400).json({ error: `Instructions bahut lambi hain (${MAX_INSTRUCTIONS} chars max)` });
+    return;
+  }
+  res.json(setSettings(text));
 });
 
 // --- Brain backup: export/import everything ----------------------------------

@@ -75,6 +75,17 @@ function cosine(a: number[], b: number[]): number {
 
 const withLock = createMutex();
 
+/** Coerce unknown input into a clean string array — brain imports and tool
+ *  args are attacker-influenced, and a non-array `tags` would crash search
+ *  (`.join` on a string). Defense in depth at the write path. */
+function cleanStrArr(v: unknown, max = 10): string[] {
+  const arr = Array.isArray(v) ? v : [];
+  return arr
+    .map((x) => String(x ?? "").toLowerCase().trim())
+    .filter(Boolean)
+    .slice(0, max);
+}
+
 export async function memoryAdd(text: string, tags: string[] = [], entities: string[] = []): Promise<Memory> {
   return withLock(async () => {
     let embedding: number[] | undefined;
@@ -90,9 +101,9 @@ export async function memoryAdd(text: string, tags: string[] = [], entities: str
     const now = new Date().toISOString();
     const mem: Memory = {
       id: uid(),
-      text,
-      tags,
-      entities: entities.map((e) => e.toLowerCase().trim()).filter(Boolean).slice(0, 10),
+      text: String(text).slice(0, 2000),
+      tags: cleanStrArr(tags, 8),
+      entities: cleanStrArr(entities, 10),
       createdAt: now,
       updatedAt: now,
       validFrom: now,
@@ -133,8 +144,8 @@ export async function memoryUpdate(id: string, text: string, tags?: string[]): P
     const mems = load();
     const mem = mems.find((m) => m.id === id);
     if (!mem) return undefined;
-    mem.text = text;
-    if (tags) mem.tags = tags;
+    mem.text = String(text).slice(0, 2000);
+    if (tags) mem.tags = cleanStrArr(tags, 8);
     mem.updatedAt = new Date().toISOString();
     try {
       if (config.nebiusApiKey && config.embeddingModel) {

@@ -1,163 +1,180 @@
-# Yaad — your personal AI that remembers
+# Yaad — your personal AI that *remembers*
 
-> **Personal AI track submission** · Nebius x NVIDIA Global AI Hackathon
+> **Nebius x NVIDIA Global AI Hackathon** · Personal AI track · also targeting **Best Use of Tavily**
 
-Yaad is an always-on, private personal AI assistant. It keeps **persistent memory** of you
-(preferences, people, decisions, routines), runs **reusable skill packs**, searches the live web,
+[![Nebius](https://img.shields.io/badge/inference-Nebius%20Token%20Factory-6C3CE0)](https://nebius.com)
+[![NVIDIA](https://img.shields.io/badge/brain-NVIDIA%20Nemotron-76B900)](https://www.nvidia.com/en-us/ai/)
+[![Tavily](https://img.shields.io/badge/search-Tavily-0A0A0A)](https://tavily.com)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow)](LICENSE)
+
+Yaad is an **always-on, private personal AI assistant**. It keeps a **persistent, self-correcting memory**
+of you (preferences, people, decisions, routines), runs **reusable skill packs**, searches the **live web**,
 and reasons with **NVIDIA Nemotron models served on Nebius Token Factory**.
 
 Your data stays in your own memory store — never shared, never sold.
+
+## 🎬 The one moment to remember
+
+Tell Yaad *"main ab Delhi me hun"* — and it doesn't just learn Delhi. It **retires** the old
+"Mumbai" fact into history, links the new one to your *location* entity, and if you ask tomorrow,
+it answers Delhi — while still able to recall *"tum Mumbai me rehte the"* when you ask about the past.
+
+Then tap **💤 Sapne dekho** — Yaad clusters your memories by entity, finds patterns you've never
+stated outright, and wakes up with insights. *That* is a personal AI, not a chatbot.
 
 ## Demo
 
 - **Live demo:** https://devilking7x.github.io/yaad/ *(points at your Yaad server)*
 - **Demo video (≤3 min):** *coming soon*
 
-## How it works
+---
+
+## ✨ What makes Yaad advanced
+
+### 🧠 Research-grade memory (not a vector dump)
+
+| Capability | How Yaad does it |
+|---|---|
+| **Bi-temporal versioning** | Every fact carries `validFrom` / `validTo` / `supersededBy`. Contradicted facts are *retired*, never deleted — recall defaults to what's currently true, history stays queryable |
+| **Hybrid recall (RRF, k=60)** | Dense embeddings (cosine) + keyword ranking + entity matching, fused with Reciprocal Rank Fusion — the 2026 consensus best practice |
+| **Entity-centric** | Entities extracted at write time; memories link through people, places, projects |
+| **Proactive learning** | After every turn, a background pass extracts durable facts into long-term memory (`YAAD_AUTO_REMEMBER`) |
+| **Dreaming** | Sleep-time consolidation: clusters memories by entity/tag, and when ≥3 related memories exist, synthesizes higher-level `✨ insights` |
+
+### 🤖 Agent architecture
 
 ```
-you ──▶ web chat UI ──▶ Yaad server ──▶ Nebius Token Factory ──▶ Nemotron
-                              │                    (OpenAI-compatible /v1)
-                              ├── memory/   persistent local memory (~/.yaad)
-                              ├── skills/   markdown skill packs (run_skill)
-                              └── Tavily    live web search (web_search)
+you ──▶ web chat UI (SSE stream) ──▶ Yaad server ──▶ Nebius Token Factory ──▶ Nemotron
+                                            │
+                          ┌─────────────────┼──────────────────┐
+                          ▼                 ▼                  ▼
+                    memory/            skills/              Tavily
+              bi-temporal JSON    markdown skill packs   live web search
+                (~/.yaad)         (run_skill, install)   (web_search,
+                                                         deep_research,
+                                                          read_page)
 ```
 
-1. **Recall** — relevant memories are injected into context before every turn.
-   Semantic recall via Nebius embeddings (cosine similarity) with keyword fallback.
-2. **Skills** — the agent can run reusable skill packs (e.g. `morning-briefing`).
-3. **Reason** — fast Nemotron model for tool routing; reasoning model for deep thinking.
-4. **Act** — tool loop (`remember`, `recall`, `web_search`, `deep_research`, `read_page`, `run_skill`),
-   then a final answer, **streamed token-by-token** over SSE.
-5. **Learn** — after every turn, a background pass extracts durable facts into long-term
-   memory automatically (`YAAD_AUTO_REMEMBER`).
-6. **See** — share a photo; a Nemotron vision model describes it and Yaad remembers it.
-7. **Remind** — "kal subah 8 baje gym yaad dilana" → `set_reminder` tool, browser
-   notification + in-chat nudge when the time comes. This is what makes Yaad proactive,
-   not reactive.
-8. **Grow** — paste any raw SKILL.md URL and Yaad installs it as a new capability
-   (`install_skill`). Every chat is auto-saved to a session history (drawer ☰) —
-   new chat, reload, delete, just like a real product.
-9. **Become yours** — ⚙️ custom instructions ("Hamesha short jawab do", "Mujhe 'bhai' bulao")
-   are injected into the system prompt, persisted server-side. 🧠 deep-think toggle
-   forces the reasoning model for any question. ☀️ Every morning (before noon) Yaad
-   offers to build your briefing from memory + skills + live web.
-10. **Stay yours** — 💾 one-click brain backup: export all memories, reminders, settings
-    to JSON; import them on any device. 💰 optional `YAAD_DAILY_CAP_USD` blocks chat
-    when today's spend is reached — your credits can't be drained by accident.
+**Two-brain routing:** the fast Nemotron model (Nano) handles tool routing and extraction;
+the reasoning model (Super/Ultra) handles deep thinking and planning. One API shape,
+zero GPU setup — pure Token Factory.
 
-**Extras for the demo:** 🎙 voice input (hi-IN), 🔊 voice output — "🔊 suno" on any
-answer, ⏹ stop-generation button, 🔍 memory search, 💰 per-turn + session token/cost meter.
+**Deep research v2 (orchestrator → workers):** a planner decomposes your question into
+2–4 focused sub-queries → parallel Tavily advanced searches → parallel page extraction →
+a single cited synthesis. Built for the **Best Use of Tavily** prize.
 
-## How Nebius + NVIDIA are used (for the judges)
+**Tool loop:** `remember` · `recall` · `web_search` · `deep_research` · `read_page` ·
+`run_skill` · `install_skill` · `set_reminder` · `see_image` · `dream` — then a final
+answer, **streamed token-by-token** over SSE with live tool-status hints.
 
-- **Nebius Token Factory** is the *only* inference provider. Every model call goes to
-  `https://api.tokenfactory.nebius.com/v1/chat/completions` (OpenAI-compatible), authenticated
-  with a Token Factory key. Token Factory accelerated the build: zero GPU setup, instant access
-  to open models, one API shape for everything.
-- **NVIDIA Nemotron** models do all the reasoning. Strategy straight from the hackathon brief:
-  the reasoning-class model (e.g. Nemotron 3 Super/Ultra) handles deep thinking, while the
-  fast-class model (e.g. Nemotron 3 Nano) handles quick tool-routing calls — responsive app,
-  stretched credits.
-- **Nebius Serverless** (planned) will host the API for the public demo; the web UI deploys to
-  GitHub Pages.
+### 🔌 MCP server — Yaad's brain, open to other agents
 
-## Quickstart
+`pnpm mcp` starts a stdio JSON-RPC server exposing Yaad's memory to any MCP client
+(Claude Code, Cursor, …):
 
-**Prereqs:** Node 22+, pnpm, a Nebius Token Factory key
-([Nebius Builder Program](https://dev.nebius.com/builders) gives hackathon credits).
+- `yaad_memory_search` — semantic + hybrid recall over your memories
+- `yaad_memory_add` — write a memory with tags/entities
+- `yaad_memory_list` — browse the store
+- `yaad_reminders_list` — your reminders
+
+### 🛡 Security (audited, not assumed)
+
+- **SSRF guard with redirect validation** — every fetch (and *every redirect hop*) is
+  DNS-checked against private/loopback/link-local ranges
+- **Security headers**, CORS allow-list, optional shared-secret auth (`YAAD_API_TOKEN`)
+- **Per-IP rate limits** (chat 30/min, API 300/min) with memory-bounded buckets
+- **Input caps everywhere** — message/history/image/session sizes, custom-instruction length
+- **Prompt-injection guard** — memory, skill-pack and web content are treated as untrusted data
+- **Error sanitization** — secrets redacted from every API error; audit log for security events
+- `pnpm audit`: no known vulnerabilities
+
+---
+
+## 🚀 Quickstart
 
 ```bash
-git clone https://github.com/devilking7x/yaad.git
-cd yaad
-cp .env.example .env   # fill in NEBIUS_API_KEY + model IDs
-pnpm install
+git clone https://github.com/devilking7x/yaad && cd yaad
+cp .env.example .env   # fill in NEBIUS_API_KEY (+ TAVILY_API_KEY for web search)
 
-# Pick model IDs your key can reach:
-curl -H "Authorization: Bearer $NEBIUS_API_KEY" \
-  https://api.tokenfactory.nebius.com/v1/models
+# backend (Express, :8787)
+cd server && pnpm install && pnpm dev
 
-# Terminal 1 — server (:8787)
-pnpm dev:server
-
-# Terminal 2 — web UI (:5173, proxies /api to the server)
-pnpm dev:web
+# frontend (Vite) — in another terminal
+cd web && pnpm install && pnpm dev   # http://localhost:5173
 ```
 
-Open http://localhost:5173 — tell Yaad something about yourself, then ask it later. It remembers.
+Pick your model IDs with `GET /api/models` (Token Factory lists what *your* key can reach),
+then set them in `.env`:
 
-## Project structure
+| Role | Recommended | Env var |
+|---|---|---|
+| Fast (routing, extraction) | `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` | `NEBIUS_FAST_MODEL` |
+| Reasoning (deep thinking) | `nvidia/nemotron-3-super-120b-a12b` | `NEBIUS_REASONING_MODEL` |
+| Vision (photo memory) | `nvidia/Nemotron-3-Nano-Omni` | `NEBIUS_VISION_MODEL` |
+| Embeddings (semantic recall) | `Qwen/Qwen3-Embedding-8B` | `NEBIUS_EMBEDDING_MODEL` |
+
+Works offline-ish too: leave embedding/vision/Tavily keys empty and Yaad falls back to
+keyword recall with zero model calls for memory.
+
+### Deploy the backend (public demo)
+
+The static site is just the UI — the chat needs the Express server. Deploy `server/` to
+[Nebius Serverless](https://nebius.com) (or any Node host), then set in the Pages build:
+
+- `VITE_API_URL` → your server URL
+- `VITE_API_TOKEN` → same value as the server's `YAAD_API_TOKEN`
+
+---
+
+## 🧰 API reference
+
+| Method & path | What it does |
+|---|---|
+| `POST /api/chat` · `POST /api/chat/stream` | Agent turn (SSE stream variant) |
+| `GET /api/models` | Model IDs your Token Factory key can reach |
+| `GET /api/memories` · `GET /api/memories/:id` | List / get memories (current facts) |
+| `DELETE /api/memories/:id` | Delete a memory |
+| `GET /api/memories/export` | Full memory dump |
+| `GET /api/skills` · `POST /api/skills/install` | List / install a skill pack from URL |
+| `GET/POST /api/reminders` · `POST /api/reminders/:id/done` | Reminders |
+| `GET/POST /api/sessions` (+ `/:id`, `/:id/messages`) | Chat session history |
+| `GET/POST /api/settings` | Custom instructions + spend readout |
+| `GET /api/brain/export` · `POST /api/brain/import` | One-click brain backup / restore |
+| `GET /api/health` | Health + configured models |
+
+---
+
+## 📁 Project structure
 
 ```
 yaad/
-├── server/src/
-│   ├── index.ts     Express API (/api/chat, /api/memories, /api/skills, /api/models)
-│   ├── agent.ts     Orchestrator: recall → skills → Nemotron → tool loop
-│   ├── nebius.ts    OpenAI-compatible Token Factory client (retries on 429/5xx)
-│   ├── memory.ts    Bi-temporal memory: versioned facts, RRF hybrid recall
-│   ├── dream.ts     "Dreaming": background insight consolidation
-│   ├── mcp.ts       MCP server — Yaad's brain for other agents (pnpm mcp)
-│   ├── skills.ts    Skill-pack loader (skills/*.md)
-│   └── tavily.ts    Tavily client: parallel sub-agent deep research
-├── web/src/         React + Tailwind chat UI (dark + gold)
-├── skills/          Reusable skill packs (markdown)
-└── docs/            Architecture + hackathon submission notes
+├── server/                 # Express agent backend
+│   └── src/
+│       ├── agent.ts        # tool loop, two-brain routing, streaming, dreaming
+│       ├── memory.ts       # bi-temporal store, RRF hybrid recall, entities
+│       ├── dream.ts        # sleep-time consolidation → insights
+│       ├── mcp.ts          # stdio MCP server (yaad_memory_*)
+│       ├── tavily.ts       # search + parallel deep research + extraction
+│       ├── skills.ts       # skill-pack loader/installer (SSRF-guarded)
+│       ├── nebius.ts       # Token Factory client (OpenAI-compatible, retries)
+│       ├── vision.ts       # photo → description → memory
+│       ├── security.ts     # SSRF guard, safeFetch, headers, audit log
+│       ├── sessions.ts / reminders.ts / settings.ts / spend.ts
+│       └── index.ts        # routes, auth, rate limits, validation
+├── web/                    # React + Tailwind chat UI (GitHub Pages)
+│   └── src/ App.tsx, api.ts, md.ts (safe markdown renderer)
+├── skills/                 # bundled skill packs (e.g. morning-briefing.md)
+├── docs/                   # ARCHITECTURE.md, HACKATHON.md
+└── .env.example            # every knob, documented
 ```
 
-## Round 7 — research-grade memory & agents
+## 🗺 Roadmap
 
-Built from a 2026 state-of-the-art research pass (temporal knowledge graphs,
-hybrid retrieval, agentic patterns, hackathon-winner analysis):
-
-- **Bi-temporal memory** — facts carry `validFrom`/`validTo`. When you correct
-  Yaad ("main ab Delhi me hun"), the old Mumbai memory is *superseded*, not
-  deleted — history stays queryable, contradictions disappear.
-- **RRF hybrid recall** — dense embeddings + keyword + entity-match signals
-  fused with Reciprocal Rank Fusion (k=60), the current consensus best practice.
-- **Entity-centric memory** — people/places/projects are extracted at write
-  time and linked, so "Priya kaun hai?" finds the right memory instantly.
-- **💤 Dreaming** — background consolidation (OpenClaw/Letta pattern): related
-  memories cluster together and, past a promotion gate (≥3), become one
-  ✨ insight ("tum aksar raat ko coding karte ho"). Try the quick chip.
-- **MCP server** — Yaad's brain as a Model Context Protocol server
-  (`pnpm mcp`): Claude Code / Cursor / any MCP client can search, add and list
-  memories over stdio.
-- **Parallel deep research** — the planner decomposes a question into 2-4
-  sub-queries, each researched in parallel, then synthesized with citations
-  (Anthropic orchestrator-worker pattern).
-- **Nemotron 3 lineup** — routing presets for Nano 30B (fast), Super 120B
-  (reasoning), Nano-Omni (vision); Qwen3-Embedding-8B for recall.
-
-## Roadmap
-
-- [ ] Nebius Serverless deployment for the public demo API
-- [ ] Scheduled skills (morning briefing on a cron)
-- [ ] Import from agent-memory-notes MCP server
-
-## Security notes (for your public demo)
-
-- **Auth (optional):** set `YAAD_API_TOKEN` on the server and `VITE_API_TOKEN` in the web
-  build — every `/api/*` call except `/api/health` then needs the bearer token.
-- **Rate limiting:** `/api/chat` and `/api/chat/stream` are capped at 30 turns/min per IP,
-  plus a 300 req/min backstop on all `/api/*` — random visitors can't burn your
-  Nebius credits or DoS the box.
-- **CORS:** set `CORS_ORIGIN` to your Pages URL (default `*` is dev mode).
-- Timeouts on all upstream calls (Nebius 120s, Tavily/vision 90s, skill fetch 30s);
-  session ids are strictly validated so they can't escape the sessions directory.
-- **SSRF guard:** skill installs resolve the URL's hostname first and refuse
-  private/loopback/link-local addresses; skill packs are capped at 200KB and must
-  be text.
-- **Input caps:** chat messages ≤ 12k chars, history ≤ 60 turns, images ≤ 2MB,
-  brain imports ≤ 500 memories / 200 reminders — unbounded inputs can't inflate
-  your token bill.
-- **Hardened responses:** security headers on every response (`nosniff`, `DENY`
-  framing, `no-referrer`, no `X-Powered-By`); API errors are sanitized so they
-  can't leak secrets or stack traces.
-- **Audit trail:** auth failures, rate-limit hits, blocked SSRF fetches, and budget
-  blocks are appended to `~/.yaad/security.log` (local only, never served).
-- **Prompt-injection guard:** the system prompt instructs the model to treat memory,
-  skill, and web content as untrusted data, never as instructions.
+- [ ] Per-user auth + isolated memory stores (today: shared-secret demo mode)
+- [ ] Nebius Serverless one-click deploy config
+- [ ] Memory evaluation harness (recall@k on a golden set)
+- [ ] Voice-first mode (Nemotron Omni audio in/out)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — build on it, ship it, win with it.

@@ -104,3 +104,31 @@ export async function assertPublicUrl(raw: string): Promise<void> {
     }
   }
 }
+
+const MAX_REDIRECTS = 5;
+
+/**
+ * fetch() that validates EVERY hop: fetch follows redirects automatically,
+ * so a "safe" initial URL could 302 to http://169.254.169.254/. With
+ * redirect:"manual" we check each Location with assertPublicUrl before
+ * following it. Returns the final response.
+ */
+export async function safeFetch(url: string, init: RequestInit = {}): Promise<globalThis.Response> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    await assertPublicUrl(current);
+    const res = await fetch(current, { ...init, redirect: "manual" });
+    const loc = res.headers.get("location");
+    if (res.status >= 300 && res.status < 400 && loc) {
+      if (hop === MAX_REDIRECTS) {
+        await res.arrayBuffer().catch(() => {});
+        throw new Error("Bahut zyada redirects");
+      }
+      current = new URL(loc, current).toString(); // handles relative Location
+      await res.arrayBuffer().catch(() => {}); // free the socket
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Redirect loop");
+}
