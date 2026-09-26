@@ -115,10 +115,24 @@ yaad/
 - **Auth (optional):** set `YAAD_API_TOKEN` on the server and `VITE_API_TOKEN` in the web
   build — every `/api/*` call except `/api/health` then needs the bearer token.
 - **Rate limiting:** `/api/chat` and `/api/chat/stream` are capped at 30 turns/min per IP,
-  so random visitors can't burn your Nebius credits.
+  plus a 300 req/min backstop on all `/api/*` — random visitors can't burn your
+  Nebius credits or DoS the box.
 - **CORS:** set `CORS_ORIGIN` to your Pages URL (default `*` is dev mode).
 - Timeouts on all upstream calls (Nebius 120s, Tavily/vision 90s, skill fetch 30s);
   session ids are strictly validated so they can't escape the sessions directory.
+- **SSRF guard:** skill installs resolve the URL's hostname first and refuse
+  private/loopback/link-local addresses; skill packs are capped at 200KB and must
+  be text.
+- **Input caps:** chat messages ≤ 12k chars, history ≤ 60 turns, images ≤ 2MB,
+  brain imports ≤ 500 memories / 200 reminders — unbounded inputs can't inflate
+  your token bill.
+- **Hardened responses:** security headers on every response (`nosniff`, `DENY`
+  framing, `no-referrer`, no `X-Powered-By`); API errors are sanitized so they
+  can't leak secrets or stack traces.
+- **Audit trail:** auth failures, rate-limit hits, blocked SSRF fetches, and budget
+  blocks are appended to `~/.yaad/security.log` (local only, never served).
+- **Prompt-injection guard:** the system prompt instructs the model to treat memory,
+  skill, and web content as untrusted data, never as instructions.
 
 ## License
 

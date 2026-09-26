@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
+import { assertPublicUrl, logSecurity } from "./security.js";
 
 // Skill packs: markdown files with a small front-matter header.
 // Format:
@@ -53,13 +54,21 @@ export function getSkill(name: string): Skill | undefined {
 export async function installSkill(name: string, url: string): Promise<Skill> {
   const clean = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
   if (!clean) throw new Error("Give the skill a valid name (letters, numbers, dashes)");
-  if (!/^https?:\/\//i.test(url)) throw new Error("URL must start with http(s)");
+  // SSRF guard: the server fetches this URL itself, so private/internal
+  // addresses are never allowed.
+  await assertPublicUrl(url);
   const res = await fetch(url, {
     headers: { "User-Agent": "yaad/1.0" },
     signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Could not fetch that URL (HTTP ${res.status})`);
-  const md = await res.text();
+  const ctype = res.headers.get("content-type") ?? "";
+  if (ctype && !/^text\//i.test(ctype)) {
+    throw new Error(`Wo skill pack nahi lagta (content-type: ${ctype.split(";")[0]})`);
+  }
+  const len = Number(res.headers.get("content-length") ?? 0);
+  if (len > 200_000) throw new Error("Skill pack bahut bada hai (200KB se zyada)");
+  const md = (await res.text()).slice(0, 200_000);
   const skill = parseSkill(`${clean}.md`, md);
   if (!skill || !skill.instructions || skill.instructions.length < 50) {
     throw new Error("That URL doesn't look like a skill pack (needs front-matter + instructions)");

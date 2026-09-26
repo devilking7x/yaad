@@ -14,9 +14,12 @@ import {
 } from "./sessions.js";
 import { getSettings, setSettings } from "./settings.js";
 import { installSkill, listSkills } from "./skills.js";
+import { logSecurity, safeError, securityHeaders } from "./security.js";
 import { todaySpendUsd } from "./spend.js";
 
 const app = express();
+app.disable("x-powered-by");
+app.use(securityHeaders);
 app.use(
   cors(
     config.corsOrigin === "*"
@@ -39,17 +42,20 @@ app.get("/api/health", (_req, res) => {
 app.use("/api", (req, res, next) => {
   if (!config.apiToken) return next();
   if (req.headers.authorization === `Bearer ${config.apiToken}`) return next();
+  logSecurity("auth-failed", `${req.method} ${req.path}`, req.ip);
   res.status(401).json({ error: "Unauthorized — set the API token" });
 });
 
 // In-memory rate limiter: protects your Nebius credits on a public demo.
-const hits = new Map<string, number[]>();
-function rateLimit(max: number, windowMs: number) {
+// Each limiter gets its own counter map so chat/API budgets stay independent.
+function rateLimit(max: number, windowMs: number, label: string) {
+  const hits = new Map<string, number[]>();
   return (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const ip = req.ip ?? "unknown";
     const now = Date.now();
     const arr = (hits.get(ip) ?? []).filter((t) => now - t < windowMs);
     if (arr.length >= max) {
+      logSecurity("rate-limit", `${label} ${req.method} ${req.path}`, ip);
       res.status(429).json({ error: "Bahut tez! Thoda ruk ke try karo." });
       return;
     }
@@ -58,56 +64,91 @@ function rateLimit(max: number, windowMs: number) {
     next();
   };
 }
-const chatLimit = rateLimit(30, 60_000); // 30 chat turns / minute / IP
+const chatLimit = rateLimit(30, 60_000, "chat"); // 30 chat turns / minute / IP
+const apiLimit = rateLimit(300, 60_000, "api"); // 300 API calls / minute / IP (backstop)
+app.use("/api", apiLimit);
+
+// --- Chat input validation ----------------------------------------------------
+// Unbounded inputs = unbounded token bills. Caps keep the public demo safe.
+const MAX_MSG = 12_000;
+const MAX_HISTORY = 60;
+const MAX_IMAGE = 2_000_000; // ~1.5MB data URL
+
+function validateChatInput(body: {
+  message?: unknown;
+  history?: unknown;
+  image?: unknown;
+}): string | null {
+  const { message, history, image } = body;
+  if (!message || typeof message !== "string") return "Body must include { message: string }";
+  if (message.length > MAX_MSG) return `Message bahut lamba hai (${MAX_MSG} chars max)`;
+  if (history !== undefined) {
+    if (!Array.isArray(history)) return "history must be an array";
+    if (history.length > MAX_HISTORY) return `History bahut lambi hai (${MAX_HISTORY} turns max)`;
+    for (const m of history) {
+      if (typeof m?.content === "string" && m.content.length > MAX_MSG) {
+        return "History me ek message bahut lamba hai";
+      }
+    }
+  }
+  if (image !== undefined && (typeof image !== "string" || image.length > MAX_IMAGE)) {
+    return "Tasveer bahut badi hai (2MB max)";
+  }
+  return null;
+}
 
 // List models your Token Factory key can reach — use this to pick model IDs.
 app.get("/api/models", async (_req, res) => {
   try {
     res.json(await listModels());
   } catch (e) {
-    res.status(502).json({ error: (e as Error).message });
+    res.status(502).json({ error: safeError(e) });
   }
 });
 
 app.post("/api/chat", chatLimit, async (req, res) => {
+  const bad = validateChatInput(req.body);
+  if (bad) {
+    res.status(400).json({ error: bad });
+    return;
+  }
   try {
     assertConfigured();
     const { message, history, image, forceReasoning } = req.body as {
-      message?: string;
+      message: string;
       history?: Array<{ role: string; content: string }>;
       image?: string;
       forceReasoning?: boolean;
     };
-    if (!message || typeof message !== "string") {
-      res.status(400).json({ error: "Body must include { message: string }" });
-      return;
-    }
     const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
     const result = await runAgent(message, safeHistory as never, { image, forceReasoning });
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
+    const msg = safeError(e);
+    if (msg.includes("budget")) logSecurity("budget-block", msg, req.ip);
+    res.status(500).json({ error: msg });
   }
 });
 
 // Streaming chat: server-sent events (token | tool | done | error).
 app.post("/api/chat/stream", chatLimit, async (req, res) => {
+  const bad = validateChatInput(req.body);
+  if (bad) {
+    res.status(400).json({ error: bad });
+    return;
+  }
   try {
     assertConfigured();
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
+    res.status(500).json({ error: safeError(e) });
     return;
   }
   const { message, history, image, forceReasoning } = req.body as {
-    message?: string;
+    message: string;
     history?: Array<{ role: string; content: string }>;
     image?: string;
     forceReasoning?: boolean;
   };
-  if (!message || typeof message !== "string") {
-    res.status(400).json({ error: "Body must include { message: string }" });
-    return;
-  }
   const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
 
   res.writeHead(200, {
@@ -121,7 +162,9 @@ app.post("/api/chat/stream", chatLimit, async (req, res) => {
   try {
     await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), { image, forceReasoning });
   } catch (e) {
-    send("error", { error: (e as Error).message });
+    const msg = safeError(e);
+    if (msg.includes("budget")) logSecurity("budget-block", msg, req.ip);
+    send("error", { error: msg });
   }
   res.end();
 });
@@ -150,7 +193,9 @@ app.post("/api/skills/install", async (req, res) => {
     const skill = await installSkill(name, url);
     res.json({ installed: true, name: skill.name, description: skill.description });
   } catch (e) {
-    res.status(400).json({ error: (e as Error).message });
+    const msg = safeError(e);
+    logSecurity("skill-install-failed", msg, req.ip);
+    res.status(400).json({ error: msg });
   }
 });
 
@@ -167,9 +212,13 @@ app.post("/api/reminders", (req, res) => {
       res.status(400).json({ error: "Body must include { text, remindAt }" });
       return;
     }
+    if (text.length > 500) {
+      res.status(400).json({ error: "Reminder text bahut lamba hai (500 chars max)" });
+      return;
+    }
     res.json(addReminder(text, remindAt));
   } catch (e) {
-    res.status(400).json({ error: (e as Error).message });
+    res.status(400).json({ error: safeError(e) });
   }
 });
 
@@ -265,17 +314,19 @@ app.post("/api/brain/import", (req, res) => {
       restored++;
     }
     // Import via the normal write paths so embeddings/validation apply.
+    // Caps: 500 memories + 200 reminders, texts truncated — a hostile or
+    // accidental giant backup can't DoS the server.
     (async () => {
-      for (const m of memories ?? []) {
+      for (const m of (memories ?? []).slice(0, 500)) {
         if (m.text) {
-          await memoryAdd(m.text, m.tags ?? ["imported"]);
+          await memoryAdd(String(m.text).slice(0, 2000), m.tags ?? ["imported"]);
           restored++;
         }
       }
-      for (const r of reminders ?? []) {
+      for (const r of (reminders ?? []).slice(0, 200)) {
         try {
           if (r.text && r.remindAt) {
-            addReminder(r.text, r.remindAt);
+            addReminder(String(r.text).slice(0, 500), r.remindAt);
             restored++;
           }
         } catch {
@@ -284,9 +335,9 @@ app.post("/api/brain/import", (req, res) => {
       }
     })()
       .then(() => res.json({ ok: true, restored }))
-      .catch((e) => res.status(500).json({ error: (e as Error).message }));
+      .catch((e) => res.status(500).json({ error: safeError(e) }));
   } catch (e) {
-    res.status(400).json({ error: (e as Error).message });
+    res.status(400).json({ error: safeError(e) });
   }
 });
 
