@@ -5,6 +5,7 @@ interface Msg {
   role: "user" | "assistant";
   content: string;
   meta?: string;
+  thinking?: string;
 }
 
 interface SessionUsage {
@@ -18,6 +19,12 @@ const TOOL_LABELS: Record<string, string> = {
   web_search: "web pe dekh raha hun…",
   run_skill: "skill chala raha hun…",
 };
+
+const QUICK_ACTIONS = [
+  "Mere baare me kya yaad hai tumhe?",
+  "Good morning! Mera briefing do.",
+  "Aaj ki top tech news batao.",
+];
 
 function shortModel(m: string): string {
   const parts = m.split("/");
@@ -44,6 +51,7 @@ export default function App() {
   const [serverOk, setServerOk] = useState<boolean | null>(null);
   const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
   const [listening, setListening] = useState(false);
+  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<any>(null);
 
@@ -61,10 +69,7 @@ export default function App() {
 
   function toggleVoice() {
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) {
-      setInput((p) => p); // no-op; button hidden when unsupported (see below)
-      return;
-    }
+    if (!SR) return;
     if (listening) {
       recogRef.current?.stop();
       setListening(false);
@@ -88,32 +93,50 @@ export default function App() {
     typeof window !== "undefined" &&
     ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
-  async function send() {
-    const text = input.trim();
+  function exportChat() {
+    const lines = messages
+      .filter((m) => m.content.trim())
+      .map((m) => `## ${m.role === "user" ? "You" : "Yaad"}\n\n${m.content}\n`);
+    const blob = new Blob([`# Yaad chat export — ${new Date().toLocaleString()}\n\n${lines.join("\n")}`], {
+      type: "text/markdown",
+    });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "yaad-chat.md";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  async function send(preset?: string) {
+    const text = (preset ?? input).trim();
     if (!text || busy) return;
     setInput("");
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     setMessages((p) => [...p, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setBusy(true);
     setStatus("soch raha hun…");
-    const idx = messages.length + 1; // index of the placeholder assistant message
+    const idx = messages.length + 1; // placeholder assistant message
 
-    const patch = (content: string, meta?: string) =>
-      setMessages((p) => p.map((m, i) => (i === idx ? { ...m, content, meta: meta ?? m.meta } : m)));
+    const patch = (fn: (m: Msg) => Msg) =>
+      setMessages((p) => p.map((m, i) => (i === idx ? fn(m) : m)));
 
     try {
       let acc = "";
+      let think = "";
       await chatStream(text, history, (e) => {
         if (e.type === "token") {
           acc += e.token;
-          patch(acc);
+          patch((m) => ({ ...m, content: acc }));
           setStatus("");
+        } else if (e.type === "thinking") {
+          think += e.text;
+          patch((m) => ({ ...m, thinking: think }));
         } else if (e.type === "tool") {
           setStatus(TOOL_LABELS[e.name] ?? `${e.name}…`);
         } else if (e.type === "done") {
           const bits = [`${shortModel(e.model)}`, `${e.steps} steps`, `${fmtTokens(e.usage.total_tokens)} tokens`];
           if (e.costUsd != null) bits.push(`$${e.costUsd.toFixed(4)}`);
-          patch(e.reply || acc, bits.join(" · "));
+          patch((m) => ({ ...m, content: e.reply || acc, meta: bits.join(" · ") }));
           setSession((s) => ({
             tokens: s.tokens + e.usage.total_tokens,
             costUsd: s.costUsd == null && e.costUsd == null ? null : (s.costUsd ?? 0) + (e.costUsd ?? 0),
@@ -121,12 +144,12 @@ export default function App() {
           setStatus("");
           refreshMemories();
         } else if (e.type === "error") {
-          patch(`Server se baat nahi ho payi: ${e.error}`);
+          patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${e.error}` }));
           setStatus("");
         }
       });
     } catch (err) {
-      patch(`Server se baat nahi ho payi: ${(err as Error).message}`);
+      patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${(err as Error).message}` }));
     } finally {
       setBusy(false);
       setStatus("");
@@ -138,6 +161,8 @@ export default function App() {
     refreshMemories();
   }
 
+  const showWelcome = !welcomeDismissed && memories.length === 0 && messages.length <= 1;
+
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0f" }}>
       {/* Header */}
@@ -146,7 +171,10 @@ export default function App() {
           <h1 className="text-2xl font-bold gold-text tracking-tight">Yaad</h1>
           <p className="text-xs text-neutral-400">your personal AI that remembers</p>
         </div>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-3 text-xs">
+          <button onClick={exportChat} className="text-neutral-400 hover:text-yellow-400" title="Chat export (Markdown)">
+            ⬇ export
+          </button>
           <span
             className={`inline-block w-2 h-2 rounded-full ${serverOk === null ? "bg-yellow-500" : serverOk ? "bg-green-500" : "bg-red-500"}`}
           />
@@ -160,6 +188,21 @@ export default function App() {
         {/* Chat */}
         <main className="flex-1 flex flex-col min-h-[60vh]">
           <div className="flex-1 overflow-y-auto chat-scroll px-4 py-4 space-y-3">
+            {showWelcome && (
+              <div className="bg-neutral-900 border gold-border rounded-2xl p-4 text-sm relative">
+                <button
+                  onClick={() => setWelcomeDismissed(true)}
+                  className="absolute top-2 right-3 text-neutral-600 hover:text-neutral-300"
+                >
+                  ✕
+                </button>
+                <p className="gold-text font-semibold mb-1">👋 Pehli baar mile ho?</p>
+                <p className="text-neutral-300 text-xs leading-relaxed">
+                  Apne baare me kuch batao — naam, kaam, pasand, routine. Main sab yaad rakhunga,
+                  aur agli baar khud use karunga. Try karo neeche wale chips.
+                </p>
+              </div>
+            )}
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                 <div
@@ -170,6 +213,16 @@ export default function App() {
                   }`}
                   style={m.role === "user" ? { background: "linear-gradient(135deg,#f6d365,#d4a017)" } : undefined}
                 >
+                  {m.thinking && (
+                    <details className="mb-2 text-xs">
+                      <summary className="cursor-pointer text-neutral-500 hover:text-yellow-400">
+                        🧠 Yaad ne aise socha
+                      </summary>
+                      <p className="text-neutral-500 whitespace-pre-wrap mt-1 border-l-2 border-neutral-700 pl-2">
+                        {m.thinking}
+                      </p>
+                    </details>
+                  )}
                   {m.content}
                   {m.meta && <div className="text-[10px] text-neutral-500 mt-1">{m.meta}</div>}
                 </div>
@@ -186,6 +239,19 @@ export default function App() {
           </div>
 
           <div className="border-t gold-border p-3">
+            {!busy && messages.length <= 3 && (
+              <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+                {QUICK_ACTIONS.map((q) => (
+                  <button
+                    key={q}
+                    onClick={() => send(q)}
+                    className="shrink-0 text-xs bg-neutral-900 border gold-border rounded-full px-3 py-1.5 text-neutral-300 hover:border-yellow-500"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="flex gap-2">
               {voiceSupported && (
                 <button
@@ -204,7 +270,7 @@ export default function App() {
                 className="flex-1 bg-neutral-900 border gold-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-yellow-500 placeholder:text-neutral-600"
               />
               <button
-                onClick={send}
+                onClick={() => send()}
                 disabled={busy || !input.trim()}
                 className="rounded-xl px-5 py-2.5 text-sm font-semibold text-black disabled:opacity-40"
                 style={{ background: "linear-gradient(135deg,#f6d365,#d4a017)" }}

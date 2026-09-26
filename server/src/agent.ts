@@ -64,6 +64,7 @@ const TOOLS: ChatTool[] = [
 
 export type AgentEvent =
   | { type: "token"; token: string }
+  | { type: "thinking"; text: string }
   | { type: "tool"; name: string }
   | {
       type: "done";
@@ -206,6 +207,7 @@ export async function runAgentStream(
     let assembled: ChatMessage | undefined;
     for await (const chunk of chatStream({ model, messages, tools: TOOLS })) {
       if (chunk.delta) onEvent({ type: "token", token: chunk.delta });
+      if (chunk.thinking) onEvent({ type: "thinking", text: chunk.thinking });
       if (chunk.message) assembled = chunk.message;
       if (chunk.usage) totalUsage = addUsage(totalUsage, chunk.usage);
       if (chunk.model) model = chunk.model;

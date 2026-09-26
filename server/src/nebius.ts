@@ -90,6 +90,8 @@ export async function chatComplete(opts: {
 export interface StreamChunk {
   /** Text delta (may be empty). */
   delta: string;
+  /** Reasoning delta (Nemotron reasoning models), may be empty. */
+  thinking?: string;
   /** Final assembled message, present exactly once at the end. */
   message?: ChatMessage;
   usage?: Usage;
@@ -124,6 +126,7 @@ export async function* chatStream(opts: {
   const decoder = new TextDecoder();
   let buf = "";
   let content = "";
+  let thinking = "";
   let model = opts.model;
   let usage: Usage | undefined;
   const acc = new Map<number, AccToolCall>();
@@ -150,6 +153,11 @@ export async function* chatStream(opts: {
       if (typeof delta.content === "string" && delta.content) {
         content += delta.content;
         out.push({ delta: delta.content, model });
+      }
+      // Reasoning trace (Nemotron reasoning-class models). Shown in the UI's "thinking" block.
+      if (typeof delta.reasoning_content === "string" && delta.reasoning_content) {
+        thinking += delta.reasoning_content;
+        out.push({ delta: "", thinking: delta.reasoning_content, model });
       }
       for (const tc of delta.tool_calls ?? []) {
         const i: number = tc.index ?? 0;

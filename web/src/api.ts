@@ -32,6 +32,7 @@ export interface ChatTurn {
 
 export type StreamEvent =
   | { type: "token"; token: string }
+  | { type: "thinking"; text: string }
   | { type: "tool"; name: string }
   | { type: "done"; reply: string; model: string; steps: number; usage: ChatTurn["usage"]; costUsd: number | null }
   | { type: "error"; error: string };
@@ -68,6 +69,7 @@ export async function chatStream(
         continue;
       }
       if (type === "token") onEvent({ type: "token", token: data.token ?? "" });
+      else if (type === "thinking") onEvent({ type: "thinking", text: data.text ?? "" });
       else if (type === "tool") onEvent({ type: "tool", name: data.name ?? "" });
       else if (type === "done")
         onEvent({
