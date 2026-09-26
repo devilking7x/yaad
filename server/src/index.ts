@@ -18,7 +18,7 @@ import {
 import { getSettings, setSettings } from "./settings.js";
 import { approveDraft, discardDraft, installSkill, listDrafts, listSkills } from "./skills.js";
 import { logSecurity, safeError, securityHeaders } from "./security.js";
-import { todaySpendUsd } from "./spend.js";
+import { checkBudget, todaySpendUsd } from "./spend.js";
 
 const app = express();
 app.disable("x-powered-by");
@@ -34,12 +34,9 @@ app.use(
 app.use(express.json({ limit: "4mb" })); // images ride along as data URLs (2MB cap enforced per-image)
 
 app.get("/api/health", (_req, res) => {
-  res.json({
-    ok: true,
-    service: "yaad",
-    nebius: { baseUrl: config.nebiusBaseUrl, reasoningModel: config.reasoningModel, fastModel: config.fastModel },
-    tavily: Boolean(config.tavilyApiKey),
-  });
+  // L5 fix: health used to leak exact model IDs + Tavily presence to anyone.
+  // Keep it minimal; model details live behind the API token at /api/models.
+  res.json({ ok: true, service: "yaad" });
 });
 
 // Optional shared-secret auth (set YAAD_API_TOKEN on the server). Health stays open.
@@ -397,6 +394,10 @@ app.post("/api/brain/import", (req, res) => {
     // Caps: 500 memories + 200 reminders, texts truncated — a hostile or
     // accidental giant backup can't DoS the server.
     (async () => {
+      // H4 fix: each imported memory burns an embedding call. Without this,
+      // /api/brain/import was a budget-guard bypass: 500 unmetered calls/req.
+      // (embed() now meters too, so the cap sees this spend.)
+      checkBudget();
       for (const m of (memories ?? []).slice(0, 500)) {
         if (m.text) {
           await memoryAdd(String(m.text).slice(0, 2000), m.tags ?? ["imported"]);

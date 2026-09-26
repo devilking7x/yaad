@@ -3,6 +3,32 @@ import path from "node:path";
 import { config } from "./config.js";
 import { logSecurity, safeFetch } from "./security.js";
 
+/**
+ * Read a response body as text, aborting the moment the byte cap is exceeded.
+ * Used where an attacker-controlled server could otherwise stream an
+ * unbounded body and OOM the process before we ever slice it.
+ */
+export async function readCappedText(res: Response, maxBytes: number): Promise<string> {
+  const body = res.body;
+  if (!body) return "";
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      try { await reader.cancel(); } catch { /* ignore */ }
+      throw new Error(`Response body bahut bada hai (${Math.round(maxBytes / 1024)}KB se zyada)`);
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return parts.join("");
+}
+
 // Skill packs: markdown files with a small front-matter header.
 // Format:
 //   ---
@@ -126,7 +152,10 @@ export async function installSkill(name: string, url: string): Promise<Skill> {
   }
   const len = Number(res.headers.get("content-length") ?? 0);
   if (len > 200_000) throw new Error("Skill pack bahut bada hai (200KB se zyada)");
-  const md = (await res.text()).slice(0, 200_000);
+  // M3 fix: the old `(await res.text()).slice(0, 200_000)` buffered the ENTIRE
+  // body first — a chunked stream with a lying/absent content-length could OOM
+  // the 512MB instance. Read with a running byte cap instead.
+  const md = await readCappedText(res, 200_000);
   const skill = parseSkill(`${clean}.md`, md);
   if (!skill || !skill.instructions || skill.instructions.length < 50) {
     throw new Error("That URL doesn't look like a skill pack (needs front-matter + instructions)");

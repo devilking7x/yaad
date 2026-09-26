@@ -31,43 +31,32 @@ export function runCode(code: string): CodeResult {
   }
 
   const logs: string[] = [];
+  // H1 fix: NEVER pass host intrinsics (Object, Array, Math, ...) into the
+  // sandbox. A fresh vm.createContext() already ships its OWN intrinsics, so
+  // guest code keeps Math/Array/JSON/etc. — but `Object.prototype.x = 1` now
+  // pollutes only the guest realm, never the host. Previously guest code
+  // permanently mutated host prototypes (verified: one run_code call could
+  // 500 every later chat turn until process restart).
+  //
+  // The only host values crossing the boundary are the two console wrappers.
+  // Each wrapper's prototype is cut to null so `console.log.constructor`
+  // can't reach the host Function constructor (the classic vm escape hatch:
+  // `fn.constructor("return process")()` would otherwise compile in the host
+  // realm with full access to process/require/env).
+  const mkLog = (prefix: string) => {
+    const fn = (...a: unknown[]) => {
+      logs.push(prefix + a.map(String).join(" "));
+    };
+    Object.setPrototypeOf(fn, null);
+    return fn;
+  };
   const sandbox = {
     console: {
-      log: (...a: unknown[]) => logs.push(a.map(String).join(" ")),
-      error: (...a: unknown[]) => logs.push("ERROR: " + a.map(String).join(" ")),
+      log: mkLog(""),
+      error: mkLog("ERROR: "),
     },
-    Math,
-    JSON,
-    Number,
-    String,
-    Boolean,
-    Array,
-    Object,
-    Date,
-    RegExp,
-    Map,
-    Set,
-    BigInt,
-    Intl,
-    URL,
-    URLSearchParams,
-    TextEncoder,
-    TextDecoder,
-    isNaN,
-    isFinite,
-    parseInt,
-    parseFloat,
-    encodeURIComponent,
-    decodeURIComponent,
   };
-  // Freeze the sandbox so guest code can't tamper with the host bindings.
-  for (const k of Object.keys(sandbox)) {
-    try {
-      Object.freeze((sandbox as Record<string, unknown>)[k]);
-    } catch {
-      /* ignore */
-    }
-  }
+  Object.freeze(sandbox.console);
   const ctx = vm.createContext(sandbox);
 
   try {

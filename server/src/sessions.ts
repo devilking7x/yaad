@@ -75,6 +75,10 @@ export function appendSessionMessages(id: string, messages: SessionMessage[]): C
   const s = read(id);
   if (!s) return undefined;
   s.messages.push(...messages);
+  // M6 fix: stored history must not grow unbounded (one long chat = ever-growing
+  // JSON file + prompt payloads bloated with stale context). Keep the last 200;
+  // long-term memory (memory.ts) is where durable facts live.
+  if (s.messages.length > 200) s.messages = s.messages.slice(-200);
   s.updatedAt = new Date().toISOString();
   write(s);
   return s;

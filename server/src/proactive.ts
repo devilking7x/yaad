@@ -7,6 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
 import { dream, dreamSkills } from "./dream.js";
+import { checkBudget } from "./spend.js";
 import { listDrafts } from "./skills.js";
 import { listJobs } from "./jobs.js";
 import { memoryList } from "./memory.js";
@@ -178,6 +179,14 @@ export function markBriefingOffered(): void {
 let dreaming = false;
 export function maybeAutoDream(): void {
   if (dreaming || !config.fastModel) return;
+  try {
+    // M5 fix: dream() + dreamSkills() burn model calls — the budget guard must
+    // run first, else auto-dreams spend past the daily cap. A capped budget
+    // just skips this dream cycle (checked again on the next poll).
+    checkBudget();
+  } catch {
+    return;
+  }
   const st = loadState();
   const count = memoryList().length;
   if (count - st.memCountAtDream < 5) return;

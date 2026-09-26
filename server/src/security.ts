@@ -11,11 +11,31 @@ function logFile(): string {
   return path.join(config.memoryDir, "security.log");
 }
 
+// L2 fix: security.log had no rotation — an attacker spamming blocked requests
+// could fill the disk. Cap at 5MB; on overflow keep the newest half (recent
+// attack evidence matters more than old noise).
+const SECURITY_LOG_MAX_BYTES = 5 * 1024 * 1024;
+
+function rotateIfNeeded(file: string): void {
+  try {
+    const st = fs.statSync(file);
+    if (st.size <= SECURITY_LOG_MAX_BYTES) return;
+    const data = fs.readFileSync(file, "utf-8");
+    const half = data.slice(-Math.floor(SECURITY_LOG_MAX_BYTES / 2));
+    const cut = half.indexOf("\n");
+    fs.writeFileSync(file, (cut >= 0 ? half.slice(cut + 1) : half) + "\n", "utf-8");
+  } catch {
+    /* best effort */
+  }
+}
+
 /** Append a security-relevant event. Reads are local-only; never served over HTTP. */
 export function logSecurity(event: string, detail: string, ip?: string): void {
   try {
+    const file = logFile();
+    rotateIfNeeded(file);
     const line = `${new Date().toISOString()} [${event}]${ip ? ` ip=${ip}` : ""} ${detail}\n`;
-    fs.appendFileSync(logFile(), line.slice(0, 2000), "utf-8");
+    fs.appendFileSync(file, line.slice(0, 2000), "utf-8");
   } catch {
     /* logging must never break the request */
   }

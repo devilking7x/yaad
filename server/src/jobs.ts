@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
 import { deepResearch } from "./tavily.js";
+import { checkBudget } from "./spend.js";
 
 export interface Job {
   id: string;
@@ -21,6 +22,11 @@ export interface Job {
 }
 
 const MAX_JOBS = 20;
+// H3 fix: cap CONCURRENTLY RUNNING jobs, not just stored records. Each job =
+// planner LLM call + up to 4 parallel Tavily searches + extracts + synthesis.
+// Without this, one chat turn could spawn several jobs and 30 req/min could
+// keep dozens of detached jobs burning Nebius credits + Tavily quota.
+const MAX_RUNNING_JOBS = 3;
 
 function jobsFile(): string {
   return path.join(config.memoryDir, "jobs.json");
@@ -59,6 +65,14 @@ function updateJob(id: string, patch: Partial<Job>): void {
  * The proactive engine picks up finished, unseen jobs and nudges the user.
  */
 export function startResearchJob(query: string): Job {
+  // H3 fix: background research used to bypass the budget guard entirely.
+  checkBudget();
+  const running = loadJobs().filter((j) => j.status === "running").length;
+  if (running >= MAX_RUNNING_JOBS) {
+    throw new Error(
+      `Abhi ${MAX_RUNNING_JOBS} research jobs chal rahe hain — thoda ruk kar phir try karo.`
+    );
+  }
   const q = String(query ?? "").slice(0, 300).trim();
   if (!q) throw new Error("Research ke liye koi query nahi di.");
   const job: Job = {

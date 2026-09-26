@@ -36,9 +36,13 @@ const uid = (): string =>
 export function addReminder(text: string, remindAt: string): Reminder {
   const d = new Date(remindAt);
   if (isNaN(d.getTime())) throw new Error(`Could not parse time: ${remindAt}`);
+  // L4 fix: the cap lives inside addReminder itself, not just at call sites —
+  // a future caller can't accidentally forget it.
+  const capped = String(text ?? "").slice(0, 500);
+  if (!capped.trim()) throw new Error("Reminder text khaali hai.");
   const r: Reminder = {
     id: uid(),
-    text,
+    text: capped,
     remindAt: d.toISOString(),
     createdAt: new Date().toISOString(),
     done: false,

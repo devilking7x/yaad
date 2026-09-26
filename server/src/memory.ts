@@ -111,6 +111,21 @@ export async function memoryAdd(text: string, tags: string[] = [], entities: str
       ...(embedding ? { embedding } : {}),
     };
     mems.push(mem);
+    // M7 fix: memories.json must not grow unbounded. Cap at 5000; evict the
+    // oldest SUPERSEDED memories first (bi-temporal history that's already
+    // retired), only then the oldest valid ones. Historical recall across
+    // 5000 memories is more than enough for a personal AI.
+    const MAX_MEMORIES = 5000;
+    if (mems.length > MAX_MEMORIES) {
+      const over = mems.length - MAX_MEMORIES;
+      const idxOldestFirst = mems
+        .map((m, i) => ({ i, dead: m.validTo !== null && m.validTo !== undefined }))
+        .sort((a, b) => Number(b.dead) - Number(a.dead) || mems[a.i].createdAt.localeCompare(mems[b.i].createdAt));
+      const drop = new Set(idxOldestFirst.slice(0, over).map((x) => x.i));
+      const kept = mems.filter((_, i) => !drop.has(i));
+      mems.length = 0;
+      mems.push(...kept);
+    }
     save(mems);
     return mem;
   });

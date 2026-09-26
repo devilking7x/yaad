@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { estimateEmbedCost, recordSpend } from "./spend.js";
 
 // Minimal OpenAI-compatible client for Nebius Token Factory.
 // Docs: https://docs.tokenfactory.nebius.com — base URL https://api.tokenfactory.nebius.com/v1
@@ -219,6 +220,9 @@ export async function* chatStream(opts: {
 export async function embed(texts: string[]): Promise<number[][]> {
   if (!config.embeddingModel) throw new Error("NEBIUS_EMBEDDING_MODEL is not set");
   const res = await postJson("/embeddings", { model: config.embeddingModel, input: texts });
+  // M1 fix: embedding spend used to be invisible to the cost meter and the
+  // daily cap. Meter every batch — memory search/add, auto-remember, dreams.
+  recordSpend(estimateEmbedCost(texts));
   const data = (await res.json()) as {
     data: Array<{ index: number; embedding: number[] }>;
   };
@@ -229,8 +233,11 @@ export async function embed(texts: string[]): Promise<number[][]> {
 
 /** Proxy helper: list models available to this key (used by /api/models). */
 export async function listModels(): Promise<unknown> {
+  // L1 fix: this fetch had no timeout — a hung upstream could tie up a
+  // connection forever. 30s is generous for a model list.
   const res = await fetch(`${config.nebiusBaseUrl}/models`, {
     headers: { Authorization: `Bearer ${config.nebiusApiKey}` },
+    signal: AbortSignal.timeout(30_000),
   });
   if (!res.ok) throw new Error(`Token Factory ${res.status}: ${(await res.text()).slice(0, 300)}`);
   return res.json();

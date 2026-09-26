@@ -1021,9 +1021,16 @@ export default function App() {
                       )}
                       {j.status === "done" && j.sources.length > 0 && (
                         <div className="mt-1.5 space-y-0.5">
-                          {j.sources.slice(0, 5).map((s, i) => (
-                            <a key={i} href={s} target="_blank" rel="noreferrer" className="block text-yellow-500/80 hover:text-yellow-400 truncate">🔗 {s}</a>
-                          ))}
+                          {j.sources.slice(0, 5).map((s, i) => {
+                            // L3 fix: only render http(s) links as anchors — a hostile
+                            // research result could otherwise plant javascript: URLs.
+                            const safe = /^https?:\/\//i.test(s);
+                            return safe ? (
+                              <a key={i} href={s} target="_blank" rel="noreferrer" className="block text-yellow-500/80 hover:text-yellow-400 truncate">🔗 {s}</a>
+                            ) : (
+                              <span key={i} className="block text-neutral-500 truncate">🔗 {s}</span>
+                            );
+                          })}
                         </div>
                       )}
                       {j.status === "failed" && j.error && (

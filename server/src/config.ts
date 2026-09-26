@@ -43,8 +43,10 @@ export const config = {
   embeddingModel: process.env.NEBIUS_EMBEDDING_MODEL ?? "",
   visionModel: process.env.NEBIUS_VISION_MODEL ?? "",
   // Optional per-1M-token prices (USD) for the cost meter — copy from Token Factory pricing.
+  // When unset, spend.ts uses conservative fallbacks so the daily cap still works.
   priceInputPer1M: Number(process.env.NEBIUS_PRICE_INPUT_PER_1M ?? 0),
   priceOutputPer1M: Number(process.env.NEBIUS_PRICE_OUTPUT_PER_1M ?? 0),
+  priceEmbedPer1M: Number(process.env.NEBIUS_PRICE_EMBED_PER_1M ?? 0),
   autoRemember: (process.env.YAAD_AUTO_REMEMBER ?? "1") === "1",
   port: Number(process.env.PORT ?? 8787),
   memoryDir: expandHome(process.env.MEMORY_DIR ?? "~/.yaad"),

@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { currentMems, memoryAdd, type Memory } from "./memory.js";
 import { chatComplete } from "./nebius.js";
+import { estimateChatCost, recordSpend } from "./spend.js";
 import { draftExists, saveDraft } from "./skills.js";
 
 // "Dreaming" — background memory consolidation (OpenClaw Dreaming / Letta
@@ -45,7 +46,7 @@ export async function dream(): Promise<{ insights: string[]; note: string }> {
   const insights: string[] = [];
   for (const [key, group] of candidates) {
     try {
-      const { message } = await chatComplete({
+      const { message, usage } = await chatComplete({
         model: config.fastModel,
         temperature: 0.4,
         maxTokens: 220,
@@ -63,6 +64,7 @@ export async function dream(): Promise<{ insights: string[]; note: string }> {
           },
         ],
       });
+      if (usage) recordSpend(estimateChatCost(usage));
       const text = (message.content ?? "").trim();
       if (text && text !== "NONE" && text.length > 10) {
         await memoryAdd(`💭 ${text}`, ["insight", "dream"], [key.replace(/^tag:/, "")]);
@@ -101,7 +103,7 @@ export async function dreamSkills(): Promise<{ drafted: string[]; note: string }
 
   let raw = "";
   try {
-    const { message } = await chatComplete({
+    const { message, usage } = await chatComplete({
       model: config.fastModel,
       temperature: 0.3,
       maxTokens: 900,
@@ -119,6 +121,7 @@ export async function dreamSkills(): Promise<{ drafted: string[]; note: string }
         { role: "user", content: `YAADEIN:\n${sample}` },
       ],
     });
+    if (usage) recordSpend(estimateChatCost(usage));
     raw = (message.content ?? "").trim();
   } catch {
     return { drafted: [], note: "" };
