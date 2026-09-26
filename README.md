@@ -135,9 +135,21 @@ including the Delhi-vs-coffee ranking regression. Results land in
 ### 🛡 Security (audited, not assumed)
 
 - **SSRF guard with redirect validation** — every fetch (and *every redirect hop*) is
-  DNS-checked against private/loopback/link-local ranges
+  DNS-checked against private/loopback/link-local ranges (incl. full `fe80::/10`)
 - **Security headers**, CORS allow-list, optional shared-secret auth (`YAAD_API_TOKEN`)
 - **Per-IP rate limits** (chat 30/min, API 300/min) with memory-bounded buckets
+- **Real $/day budget cap** — every model call is metered (chat, embeddings, vision,
+  research planner + synthesizer); 429 + `budgetExceeded` when the cap trips, so the
+  public demo can never drain your credits
+- **Per-IP demo budget** (`YAAD_IP_DAILY_CAP_USD`, default $0.15/day) — one visitor
+  can't eat the whole daily budget before a judge opens the site
+- **Disconnect abort** — client goes away mid-stream → the upstream model fetch is
+  aborted immediately, partial spend still metered
+- **Sandboxed code execution** — `run_code` runs in a dedicated Worker (64MB heap,
+  5s CPU cap); `require`/`process`/`fetch` unavailable, infinite loops and
+  memory bombs contained and tested
+- **Crash-safe storage** — all JSON state writes are atomic (tmp + rename), so a
+  killed process can't leave truncated data
 - **Input caps everywhere** — message/history/image/session sizes, custom-instruction length
 - **Prompt-injection guard** — memory, skill-pack and web content are treated as untrusted data
 - **Error sanitization** — secrets redacted from every API error; audit log for security events

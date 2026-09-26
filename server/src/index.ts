@@ -139,7 +139,7 @@ app.post("/api/chat", chatLimit, async (req, res) => {
       forceReasoning?: boolean;
     };
     const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
-    const result = await runAgent(message, safeHistory as never, { image, forceReasoning });
+    const result = await runAgent(message, safeHistory as never, { image, forceReasoning, clientIp: req.ip ?? "unknown" });
     res.json(result);
   } catch (e) {
     const msg = safeError(e);
@@ -200,6 +200,7 @@ app.post("/api/chat/stream", chatLimit, async (req, res) => {
       image,
       forceReasoning,
       isCancelled: () => clientGone,
+      clientIp: req.ip ?? "unknown",
     });
   } catch (e) {
     if (clientGone) return; // they're gone — nothing to tell them

@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
 import { deepResearch } from "./tavily.js";
-import { checkBudget } from "./spend.js";
+import { checkBudget, checkIpBudget } from "./spend.js";
 
 export interface Job {
   id: string;
@@ -65,9 +65,11 @@ function updateJob(id: string, patch: Partial<Job>): void {
  * the research runs detached and the job record is updated on completion.
  * The proactive engine picks up finished, unseen jobs and nudges the user.
  */
-export function startResearchJob(query: string): Job {
+export function startResearchJob(query: string, clientIp?: string): Job {
   // H3 fix: background research used to bypass the budget guard entirely.
   checkBudget();
+  // Demo armor: background research is the priciest thing a visitor can trigger.
+  if (clientIp) checkIpBudget(clientIp);
   const running = loadJobs().filter((j) => j.status === "running").length;
   if (running >= MAX_RUNNING_JOBS) {
     throw new Error(
@@ -92,8 +94,9 @@ export function startResearchJob(query: string): Job {
   jobs.unshift(job);
   saveJobs(jobs);
 
-  // Detached: never blocks the chat turn.
-  deepResearch(q).then(
+  // Detached: never blocks the chat turn. The IP is threaded through so the
+  // research spend still counts against the visitor's demo budget.
+  deepResearch(q, clientIp).then(
     (r) => {
       updateJob(job.id, {
         status: "done",

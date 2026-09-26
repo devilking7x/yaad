@@ -1,11 +1,12 @@
 import { config } from "./config.js";
-import { estimateChatCost, recordSpend } from "./spend.js";
+import { estimateChatCost, recordSpend, recordIpSpend, checkIpBudget } from "./spend.js";
 
 // Vision: describe a user-shared image with a Nemotron vision model
 // (e.g. nvidia/nemotron-3-nano-omni) on Token Factory, so Yaad can
 // *remember* photos — receipts, whiteboards, people, places.
 
-export async function describeImage(dataUrl: string): Promise<string> {
+export async function describeImage(dataUrl: string, clientIp?: string): Promise<string> {
+  if (clientIp) checkIpBudget(clientIp); // demo armor: vision is one of the priciest calls
   if (!config.nebiusApiKey) throw new Error("NEBIUS_API_KEY is not set");
   if (!config.visionModel) {
     throw new Error(
@@ -44,7 +45,9 @@ export async function describeImage(dataUrl: string): Promise<string> {
   // C2 fix: vision was unmetered — record it so the daily cap stays honest.
   const u = data.usage;
   if (u && typeof u.prompt_tokens === "number" && typeof u.completion_tokens === "number") {
-    recordSpend(estimateChatCost({ prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens }));
+    const cost = estimateChatCost({ prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens });
+    recordSpend(cost);
+    if (clientIp) recordIpSpend(clientIp, cost);
   }
   return text as string;
 }

@@ -1,6 +1,6 @@
 import { config } from "./config.js";
 import { chatComplete } from "./nebius.js";
-import { recordSpend, estimateChatCost } from "./spend.js";
+import { recordSpend, recordIpSpend, estimateChatCost, checkIpBudget } from "./spend.js";
 
 // Tavily web layer — our entry for the "Best Use of Tavily" prize.
 // Uses three Tavily APIs: /search (advanced depth), /extract (page reading),
@@ -59,7 +59,9 @@ export async function readPage(url: string, query = ""): Promise<string> {
  * 4. A synthesizer merges everything into one cited answer.
  * This is the canonical 2026 agentic pattern (Anthropic orchestrator-worker).
  */
-export async function deepResearch(query: string): Promise<{ summary: string; sources: string[] }> {
+export async function deepResearch(query: string, clientIp?: string): Promise<{ summary: string; sources: string[] }> {
+  // Demo armor: one visitor shouldn't burn the budget on repeated research.
+  if (clientIp) checkIpBudget(clientIp);
   // 1. Plan: decompose into sub-queries
   let subQueries: string[] = [query];
   try {
@@ -78,7 +80,11 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
       ],
     });
     // C1 fix: the planner call was unmetered — record it so the daily cap stays honest.
-    if (planRes.usage) recordSpend(estimateChatCost(planRes.usage));
+    if (planRes.usage) {
+      const cost = estimateChatCost(planRes.usage);
+      recordSpend(cost);
+      if (clientIp) recordIpSpend(clientIp, cost);
+    }
     const message = planRes.message;
     const parsed = JSON.parse(message.content ?? "[]") as unknown;
     if (Array.isArray(parsed) && parsed.length >= 2) {
@@ -160,6 +166,10 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
     ],
   });
   // C1 fix: the synthesizer call was unmetered too (big prompt — ~10k+ tokens).
-  if (synthRes.usage) recordSpend(estimateChatCost(synthRes.usage));
+  if (synthRes.usage) {
+    const cost = estimateChatCost(synthRes.usage);
+    recordSpend(cost);
+    if (clientIp) recordIpSpend(clientIp, cost);
+  }
   return { summary: (synthRes.message.content as string) ?? "", sources: topUrls.slice(0, 6) };
 }

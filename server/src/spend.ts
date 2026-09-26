@@ -112,3 +112,59 @@ export function checkBudget(): void {
     );
   }
 }
+
+// --- Per-IP demo armor -------------------------------------------------------
+// The public demo link means strangers can burn the $1 Token Factory balance.
+// The global $0.50/day cap bounds TOTAL drain; the per-IP cap stops ONE visitor
+// from eating the whole budget before a judge even opens the site. Default
+// $0.15/IP/day ≈ 50 chat turns — plenty for a real demo, useless for draining.
+// Tune with YAAD_IP_DAILY_CAP_USD (0 disables).
+
+function ipSpendFile(): string {
+  fs.mkdirSync(config.memoryDir, { recursive: true });
+  return path.join(config.memoryDir, "ip-spend.json");
+}
+
+interface IpSpendLog {
+  date: string; // YYYY-MM-DD (IST)
+  ips: Record<string, number>;
+}
+
+function loadIpSpend(): IpSpendLog {
+  try {
+    const s = JSON.parse(fs.readFileSync(ipSpendFile(), "utf-8")) as IpSpendLog;
+    if (s.date === todayIST() && s.ips && typeof s.ips === "object") return s;
+  } catch {
+    /* start fresh */
+  }
+  return { date: todayIST(), ips: {} };
+}
+
+function saveIpSpend(s: IpSpendLog): void {
+  atomicWriteFile(ipSpendFile(), JSON.stringify(s, null, 2), "utf-8");
+}
+
+/** Throws when this IP already burned its daily demo budget. */
+export function checkIpBudget(ip: string): void {
+  const cap = config.ipDailyCapUsd;
+  if (!cap || cap <= 0 || !ip) return;
+  const spent = loadIpSpend().ips[ip] ?? 0;
+  if (spent >= cap) {
+    throw new Error(
+      `Is IP ka aaj ka demo budget ($${cap.toFixed(2)}) khatam ho gaya — kal phir try karo. (kharch: $${spent.toFixed(4)})`
+    );
+  }
+}
+
+/** Attribute spend to an IP (called next to every recordSpend of user-triggered work). */
+export function recordIpSpend(ip: string, usd: number | null): void {
+  if (!ip || usd == null || usd <= 0) return;
+  const s = loadIpSpend();
+  s.ips[ip] = (s.ips[ip] ?? 0) + usd;
+  // Bound the map: a botnet shouldn't grow this file forever.
+  const keys = Object.keys(s.ips);
+  if (keys.length > 2000) {
+    for (const k of keys.slice(0, keys.length - 2000)) delete s.ips[k];
+  }
+  saveIpSpend(s);
+}

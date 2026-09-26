@@ -7,7 +7,7 @@ import { dream, dreamSkills } from "./dream.js";
 import { addReminder } from "./reminders.js";
 import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
-import { checkBudget, estimateChatCost, recordSpend, releaseSpend, reserveSpend, TURN_RESERVE_USD } from "./spend.js";
+import { checkBudget, checkIpBudget, estimateChatCost, recordSpend, recordIpSpend, releaseSpend, reserveSpend, TURN_RESERVE_USD } from "./spend.js";
 import { deepResearch, readPage, webSearch } from "./tavily.js";
 import { describeImage } from "./vision.js";
 
@@ -191,7 +191,7 @@ function toolResult(id: string, name: string, payload: unknown): ChatMessage {
   };
 }
 
-async function executeTool(name: string, args: Record<string, string>): Promise<unknown> {
+async function executeTool(name: string, args: Record<string, string>, clientIp?: string): Promise<unknown> {
   // M7 fix: the model can send numbers/objects/anything — the type was a lie.
   // Coerce every arg to a string so a hostile arg can't plant "[object Object]"
   // as a durable memory. Non-object args become {}.
@@ -226,7 +226,7 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     case "web_search":
       return webSearch(args.query, 5);
     case "deep_research": {
-      const r = await deepResearch(args.query);
+      const r = await deepResearch(args.query, clientIp);
       return { summary: r.summary, sources: r.sources };
     }
     case "read_page": {
@@ -257,7 +257,7 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     case "run_code":
       return runCode(args.code ?? "");
     case "research_background": {
-      const job = startResearchJob(args.query ?? "");
+      const job = startResearchJob(args.query ?? "", clientIp);
       return { started: true, id: job.id, query: job.query };
     }
     default:
@@ -385,9 +385,11 @@ export async function runAgentStream(
   userMessage: string,
   history: ChatMessage[],
   onEvent: (e: AgentEvent) => void,
-  opts: { image?: string; forceReasoning?: boolean; isCancelled?: () => boolean } = {}
+  opts: { image?: string; forceReasoning?: boolean; isCancelled?: () => boolean; clientIp?: string } = {}
 ): Promise<void> {
   checkBudget();
+  // Demo armor: one visitor can't eat the whole daily budget on the public link.
+  if (opts.clientIp) checkIpBudget(opts.clientIp);
   // M2 fix: reserve a conservative turn cost up front — 30 parallel /api/chat
   // requests must not all slip past checkBudget() before any spend is recorded.
   reserveSpend(TURN_RESERVE_USD);
@@ -398,7 +400,7 @@ export async function runAgentStream(
   if (opts.image) {
     onEvent({ type: "tool", name: "see_image" });
     try {
-      const desc = await describeImage(opts.image);
+      const desc = await describeImage(opts.image, opts.clientIp);
       imageNote = `\n\n[The user shared an image. Vision model description: ${desc}]`;
       await memoryAdd(`User shared a photo: ${desc.slice(0, 300)}`, ["photo", "auto"]).catch(() => {});
     } catch (e) {
@@ -421,12 +423,18 @@ export async function runAgentStream(
   let steps = 0;
   let model = config.fastModel;
   let totalUsage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  // Meter partial spend on early exits (client gone mid-stream): global + per-IP.
+  const meterPartial = (): void => {
+    const cost = estimateCost(totalUsage);
+    recordSpend(cost);
+    if (opts.clientIp) recordIpSpend(opts.clientIp, cost);
+  };
 
   for (;;) {
     // H3 fix: the judge navigated away mid-stream — stop burning tokens on a
     // dead socket. Partial spend is metered, then we bail quietly.
     if (opts.isCancelled?.()) {
-      recordSpend(estimateCost(totalUsage));
+      meterPartial();
       return;
     }
     // M1 fix: re-check the budget before EVERY model step, not just at turn
@@ -457,13 +465,13 @@ export async function runAgentStream(
       }
     } catch (e) {
       if (ac.signal.aborted && opts.isCancelled?.()) {
-        recordSpend(estimateCost(totalUsage));
+        meterPartial();
         return;
       }
       throw e;
     }
     if (streamAborted) {
-      recordSpend(estimateCost(totalUsage));
+      meterPartial();
       return;
     }
     if (!assembled) throw new Error("Token Factory returned no message");
@@ -486,14 +494,16 @@ export async function runAgentStream(
         } catch {
           /* keep empty */
         }
-        return executeTool(call.function.name, args).catch((e: Error) => ({ error: e.message }));
+        return executeTool(call.function.name, args, opts.clientIp).catch((e: Error) => ({ error: e.message }));
       })
     );
     calls.forEach((call, i) => messages.push(toolResult(call.id, call.function.name, outputs[i])));
   }
 
   // L1 fix: meter BEFORE emitting done — if onEvent throws, spend was skipped.
-  recordSpend(estimateCost(totalUsage));
+  const turnCost = estimateCost(totalUsage);
+  recordSpend(turnCost);
+  if (opts.clientIp) recordIpSpend(opts.clientIp, turnCost);
   onEvent({
     type: "done",
     reply: finalReply,
@@ -524,7 +534,7 @@ export interface TurnResult {
 export async function runAgent(
   userMessage: string,
   history: ChatMessage[] = [],
-  opts: { image?: string; forceReasoning?: boolean } = {}
+  opts: { image?: string; forceReasoning?: boolean; clientIp?: string } = {}
 ): Promise<TurnResult> {
   let reply = "";
   let model = "";

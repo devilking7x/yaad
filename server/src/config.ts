@@ -58,6 +58,9 @@ export const config = {
   corsOrigin: process.env.CORS_ORIGIN ?? "*",
   // Daily spend cap in USD (0 = no cap). Blocks chat when reached.
   dailyCapUsd: Number(process.env.YAAD_DAILY_CAP_USD ?? 0),
+  // Per-IP daily demo budget in USD (0 = no per-IP cap). Stops one visitor
+  // from eating the whole daily budget on the public demo link.
+  ipDailyCapUsd: Number(process.env.YAAD_IP_DAILY_CAP_USD ?? 0.15),
 };
 
 export function assertConfigured(): void {
