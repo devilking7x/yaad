@@ -6,6 +6,7 @@ import { memoryAdd, memoryDelete, memoryExport, memoryGet, memoryList } from "./
 import { listModels } from "./nebius.js";
 import { addReminder, completeReminder, deleteReminder, listReminders } from "./reminders.js";
 import { computeNudges, markBriefingOffered, markNudgesSeen, maybeAutoDream } from "./proactive.js";
+import { listJobs, markJobSeen } from "./jobs.js";
 import {
   appendSessionMessages,
   createSession,
@@ -274,13 +275,25 @@ app.get("/api/nudges", (_req, res) => {
 
 app.post("/api/nudges/seen", (req, res) => {
   const { ids } = req.body as { ids?: unknown };
-  markNudgesSeen(Array.isArray(ids) ? ids : []);
+  const list = Array.isArray(ids) ? ids : [];
+  markNudgesSeen(list);
+  for (const id of list) {
+    if (typeof id === "string" && id.startsWith("job:")) markJobSeen(id.slice(4));
+  }
   res.json({ ok: true });
 });
 
 app.post("/api/nudges/briefing-offered", (_req, res) => {
   markBriefingOffered();
   res.json({ ok: true });
+});
+
+// --- Background jobs -------------------------------------------------------
+
+app.get("/api/jobs", (_req, res) => res.json(listJobs()));
+
+app.post("/api/jobs/:id/seen", (req, res) => {
+  res.json({ seen: markJobSeen(req.params.id) });
 });
 
 // --- Sessions ----------------------------------------------------------------

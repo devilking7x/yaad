@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, chatStream, type ChatSession, type Memory, type Nudge, type Reminder, type Skill } from "./api";
+import { api, chatStream, type ChatSession, type Job, type Memory, type Nudge, type Reminder, type Skill } from "./api";
 import { renderRich } from "./md";
 
 interface Msg {
@@ -58,9 +58,10 @@ export default function App() {
   const [memories, setMemories] = useState<Memory[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [drafts, setDrafts] = useState<Skill[]>([]);
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [tab, setTab] = useState<"memory" | "skills" | "reminders">("memory");
+  const [tab, setTab] = useState<"memory" | "skills" | "reminders" | "jobs">("memory");
   const [nudges, setNudges] = useState<Nudge[]>([]);
   const seenNudgeRef = useRef<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -91,6 +92,7 @@ export default function App() {
     api.memories().then(setMemories).catch(() => {});
     api.skills().then(setSkills).catch(() => {});
     api.skillDrafts.list().then(setDrafts).catch(() => {});
+    api.jobs.list().then(setJobs).catch(() => {});
     api.reminders.list().then(setReminders).catch(() => {});
     api.sessions.list().then(setSessions).catch(() => {});
     api.settings
@@ -180,6 +182,11 @@ export default function App() {
       setTab("skills");
       setDrawerOpen(true);
       api.skillDrafts.list().then(setDrafts).catch(() => {});
+    } else if (n.action === "open-jobs") {
+      setTab("jobs");
+      setDrawerOpen(true);
+      api.jobs.list().then(setJobs).catch(() => {});
+      if (n.refId) api.jobs.seen(n.refId).catch(() => {});
     }
   }
 
@@ -485,7 +492,7 @@ export default function App() {
                   onClick={() => nudgeAction(n)}
                   className="text-xs px-2 py-1 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30"
                 >
-                  {n.action === "done-reminder" ? "✅ Ho gaya" : n.action === "send-briefing" ? "☀️ Banao" : n.action === "open-skills" ? "✨ Dekho" : "🧠 Dekho"}
+                  {n.action === "done-reminder" ? "✅ Ho gaya" : n.action === "send-briefing" ? "☀️ Banao" : n.action === "open-skills" ? "✨ Dekho" : n.action === "open-jobs" ? "🔍 Dekho" : "🧠 Dekho"}
                 </button>
                 <button
                   onClick={() => dismissNudge(n.id)}
@@ -826,6 +833,7 @@ export default function App() {
                 ["memory", `Memory (${memories.length})`],
                 ["skills", `Skills (${skills.length})`],
                 ["reminders", `Reminders (${reminders.length})`],
+                ["jobs", `Jobs (${jobs.filter((j) => j.status === "running").length || jobs.length})`],
               ] as const
             ).map(([t, label]) => (
               <button
@@ -952,6 +960,42 @@ export default function App() {
                           hatao
                         </button>
                       </div>
+                    </div>
+                  ))
+                )}
+              </>
+            )}
+            {tab === "jobs" && (
+              <>
+                {jobs.length === 0 ? (
+                  <p className="text-xs text-neutral-600 p-2">
+                    Koi background job nahi. "Is par research karke background me bata dena" kaho — Yaad kaam karega, tum aaram karo.
+                  </p>
+                ) : (
+                  jobs.map((j) => (
+                    <div key={j.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="font-semibold text-neutral-200 truncate">{j.query}</p>
+                        <span className={
+                          j.status === "running" ? "text-yellow-400 animate-pulse" :
+                          j.status === "done" ? "text-green-400" : "text-red-400"
+                        }>
+                          {j.status === "running" ? "⏳ chal raha" : j.status === "done" ? "✅ taiyaar" : "❌ fail"}
+                        </span>
+                      </div>
+                      {j.status === "done" && j.summary && (
+                        <p className="text-neutral-400 mt-1.5 whitespace-pre-wrap">{j.summary.slice(0, 600)}{j.summary.length > 600 ? "…" : ""}</p>
+                      )}
+                      {j.status === "done" && j.sources.length > 0 && (
+                        <div className="mt-1.5 space-y-0.5">
+                          {j.sources.slice(0, 5).map((s, i) => (
+                            <a key={i} href={s} target="_blank" rel="noreferrer" className="block text-yellow-500/80 hover:text-yellow-400 truncate">🔗 {s}</a>
+                          ))}
+                        </div>
+                      )}
+                      {j.status === "failed" && j.error && (
+                        <p className="text-red-400/80 mt-1">{j.error}</p>
+                      )}
                     </div>
                   ))
                 )}

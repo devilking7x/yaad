@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { runCode } from "./sandbox.js";
+import { startResearchJob } from "./jobs.js";
 import { memoryAdd, memorySearch, memorySupersede, currentMems } from "./memory.js";
 import { dream, dreamSkills } from "./dream.js";
 import { addReminder } from "./reminders.js";
@@ -150,6 +151,21 @@ const TOOLS: ChatTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "research_background",
+      description:
+        "Start deep research in the BACKGROUND and return immediately. Use when the user asks for research but doesn't need to wait — tell them 'ho jayega to bata dunga'. Yaad will nudge them the moment it's ready. For quick questions use deep_research instead.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "The research question." },
+        },
+        required: ["query"],
+      },
+    },
+  },
 ];
 
 export type AgentEvent =
@@ -220,6 +236,10 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
     }
     case "run_code":
       return runCode(args.code ?? "");
+    case "research_background": {
+      const job = startResearchJob(args.query ?? "");
+      return { started: true, id: job.id, query: job.query };
+    }
     default:
       return { error: `Unknown tool ${name}` };
   }
@@ -245,6 +265,7 @@ function systemPrompt(): string {
     "Use `recall` when you need more context.",
     "SPEED: when you need several INDEPENDENT things (two searches, search + recall, code + memory), call ALL the tools in ONE block — they execute in parallel. Never do one-by-one what you can do together.",
     "Use `run_code` for ANY calculation, date math, or data transform — compute, don't guess.",
+    "If the user asks for research and doesn't need it instantly, use `research_background` and tell them you'll nudge when it's ready — don't make them wait.",
     "Never claim to remember something you were not given.",
     "Memory is versioned: when the user corrects or changes a fact, save the new fact and the OLD one is automatically retired (kept as history, not injected).",
     "Use `dream` when the user asks for insights or says 'sapne dekho' — it finds patterns across their memories and drafts new skills for repeated workflows (user approves drafts).",

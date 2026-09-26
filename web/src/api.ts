@@ -133,11 +133,24 @@ export interface Settings {
 
 export interface Nudge {
   id: string;
-  kind: "reminder" | "briefing" | "insight" | "skill-draft";
+  kind: "reminder" | "briefing" | "insight" | "skill-draft" | "job-done";
   text: string;
   createdAt: string;
   action: string;
   refId?: string;
+}
+
+export interface Job {
+  id: string;
+  kind: "deep_research";
+  query: string;
+  status: "running" | "done" | "failed";
+  createdAt: string;
+  finishedAt: string | null;
+  summary: string | null;
+  sources: string[];
+  error: string | null;
+  seen: boolean;
 }
 
 export const api = {
@@ -168,6 +181,10 @@ export const api = {
     list: (): Promise<Nudge[]> => req("/api/nudges"),
     seen: (ids: string[]) => req("/api/nudges/seen", { method: "POST", body: JSON.stringify({ ids }) }),
     briefingOffered: () => req("/api/nudges/briefing-offered", { method: "POST" }),
+  },
+  jobs: {
+    list: (): Promise<Job[]> => req("/api/jobs"),
+    seen: (id: string) => req(`/api/jobs/${encodeURIComponent(id)}/seen`, { method: "POST" }),
   },
   reminders: {
     list: (): Promise<Reminder[]> => req("/api/reminders"),

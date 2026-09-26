@@ -8,10 +8,11 @@ import path from "node:path";
 import { config } from "./config.js";
 import { dream, dreamSkills } from "./dream.js";
 import { listDrafts } from "./skills.js";
+import { listJobs } from "./jobs.js";
 import { memoryList } from "./memory.js";
 import { listReminders } from "./reminders.js";
 
-export type NudgeKind = "reminder" | "briefing" | "insight" | "skill-draft";
+export type NudgeKind = "reminder" | "briefing" | "insight" | "skill-draft" | "job-done";
 export interface Nudge {
   id: string;
   kind: NudgeKind;
@@ -110,6 +111,24 @@ export function computeNudges(): Nudge[] {
         createdAt: now,
         action: "open-skills",
         refId: d.name,
+      });
+    }
+  }
+
+  // 2b. Finished background jobs the user hasn't seen yet
+  for (const j of listJobs().filter((x) => x.status !== "running" && !x.seen).slice(0, 3)) {
+    const id = `job:${j.id}`;
+    if (!seen.has(id)) {
+      out.push({
+        id,
+        kind: "job-done",
+        text:
+          j.status === "done"
+            ? `🔍 Research taiyaar: ${j.query.slice(0, 80)}`
+            : `⚠️ Research fail ho gaya: ${j.query.slice(0, 80)}`,
+        createdAt: now,
+        action: "open-jobs",
+        refId: j.id,
       });
     }
   }

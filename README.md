@@ -90,6 +90,13 @@ logic. Ask "mere 5 stocks ka average return kya hai?" and it *runs* the numbers 
 estimating them. The sandbox is a guardrail, not a bulletproof boundary — documented honestly
 in `server/src/sandbox.ts`.
 
+### 🔄 Background jobs — Codex-style "kaam chalta rahe"
+
+Long research doesn't block your chat. Tell Yaad *"is par research karke background me bata dena"*
+and it fires `research_background`: the deep research runs detached, and the **proactive engine
+nudges you the moment it's ready** (🔍 *Research taiyaar*). The Jobs tab shows every job's status,
+summary, and sources. Your computer — and your conversation — stays free.
+
 ### 🌱 Self-improving: Yaad writes its own skills
 
 When dreaming spots a **repeated workflow** in your memories (not a one-off fact), it drafts
@@ -168,7 +175,8 @@ The static site is just the UI — the chat needs the Express server. Deploy `se
 | `GET /api/memories/export` | Full memory dump |
 | `GET /api/skills` · `POST /api/skills/install` | List / install a skill pack from URL |
 | `GET /api/skills/drafts` · `POST /api/skills/drafts/:name/approve|discard` | Self-drafted skill inbox (approval gate) |
-| `GET /api/nudges` · `POST /api/nudges/seen` | Proactive nudges (reminders, briefing, insights, skill drafts) |
+| `GET /api/nudges` · `POST /api/nudges/seen` | Proactive nudges (reminders, briefing, insights, skill drafts, jobs) |
+| `GET /api/jobs` · `POST /api/jobs/:id/seen` | Background research jobs (Codex-style) |
 | `GET/POST /api/reminders` · `POST /api/reminders/:id/done` | Reminders |
 | `GET/POST /api/sessions` (+ `/:id`, `/:id/messages`) | Chat session history |
 | `GET/POST /api/settings` | Custom instructions + spend readout |
