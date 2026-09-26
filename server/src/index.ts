@@ -1,6 +1,6 @@
 import cors from "cors";
 import express from "express";
-import { runAgent } from "./agent.js";
+import { runAgent, runAgentStream } from "./agent.js";
 import { assertConfigured, config } from "./config.js";
 import { memoryDelete, memoryExport, memoryGet, memoryList } from "./memory.js";
 import { listModels } from "./nebius.js";
@@ -42,6 +42,37 @@ app.post("/api/chat", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: (e as Error).message });
   }
+});
+
+// Streaming chat: server-sent events (token | tool | done | error).
+app.post("/api/chat/stream", async (req, res) => {
+  try {
+    assertConfigured();
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+    return;
+  }
+  const { message, history } = req.body as { message?: string; history?: Array<{ role: string; content: string }> };
+  if (!message || typeof message !== "string") {
+    res.status(400).json({ error: "Body must include { message: string }" });
+    return;
+  }
+  const safeHistory = (history ?? []).filter((m) => ["user", "assistant"].includes(m.role));
+
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  const send = (type: string, data: unknown): void => {
+    res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  try {
+    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e));
+  } catch (e) {
+    send("error", { error: (e as Error).message });
+  }
+  res.end();
 });
 
 app.get("/api/memories", (_req, res) => res.json(memoryList()));

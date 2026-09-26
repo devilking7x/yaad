@@ -1,10 +1,12 @@
 import { config } from "./config.js";
-import { chatComplete, type ChatMessage, type ChatTool } from "./nebius.js";
+import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { memoryAdd, memorySearch } from "./memory.js";
 import { getSkill, listSkills } from "./skills.js";
 import { webSearch } from "./tavily.js";
 
 // Yaad agent: recall memory -> pick skills -> reason with Nemotron -> act with tools.
+// Streams tokens live, tracks token usage + estimated cost, and proactively
+// consolidates new facts into long-term memory after each turn.
 
 const TOOLS: ChatTool[] = [
   {
@@ -60,6 +62,19 @@ const TOOLS: ChatTool[] = [
   },
 ];
 
+export type AgentEvent =
+  | { type: "token"; token: string }
+  | { type: "tool"; name: string }
+  | {
+      type: "done";
+      reply: string;
+      model: string;
+      steps: number;
+      usage: Usage;
+      costUsd: number | null;
+    }
+  | { type: "error"; error: string };
+
 function toolResult(id: string, name: string, payload: unknown): ChatMessage {
   return {
     role: "tool",
@@ -72,11 +87,14 @@ function toolResult(id: string, name: string, payload: unknown): ChatMessage {
 async function executeTool(name: string, args: Record<string, string>): Promise<unknown> {
   switch (name) {
     case "remember": {
-      const mem = memoryAdd(args.text, (args.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean));
+      const mem = await memoryAdd(
+        args.text,
+        (args.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean)
+      );
       return { saved: true, id: mem.id };
     }
     case "recall":
-      return memorySearch(args.query, 5).map((m) => ({ id: m.id, text: m.text, tags: m.tags }));
+      return (await memorySearch(args.query, 5)).map((m) => ({ id: m.id, text: m.text, tags: m.tags }));
     case "web_search":
       return webSearch(args.query, 5);
     case "run_skill": {
@@ -112,16 +130,58 @@ function systemPrompt(): string {
   ].join("\n");
 }
 
-export interface TurnResult {
-  reply: string;
-  model: string;
-  steps: number;
+function addUsage(a: Usage, b?: Usage): Usage {
+  return {
+    prompt_tokens: a.prompt_tokens + (b?.prompt_tokens ?? 0),
+    completion_tokens: a.completion_tokens + (b?.completion_tokens ?? 0),
+    total_tokens: a.total_tokens + (b?.total_tokens ?? 0),
+  };
+}
+
+function estimateCost(usage: Usage): number | null {
+  const { priceInputPer1M, priceOutputPer1M } = config;
+  if (!priceInputPer1M && !priceOutputPer1M) return null;
+  return (usage.prompt_tokens / 1e6) * priceInputPer1M + (usage.completion_tokens / 1e6) * priceOutputPer1M;
+}
+
+/** Background pass: extract durable facts from the turn into long-term memory. */
+async function consolidateMemory(userMessage: string, reply: string): Promise<void> {
+  if (!config.autoRemember || userMessage.trim().length < 20) return;
+  try {
+    const { message } = await chatComplete({
+      model: config.fastModel,
+      temperature: 0.2,
+      maxTokens: 300,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Extract durable facts about the user from this conversation (preferences, people, decisions, routines, goals). " +
+            "Reply with ONLY a JSON array of strings, e.g. [\"User likes filter coffee\", \"User's sister is Priya\"]. " +
+            "Empty array [] if nothing durable. No other text.",
+        },
+        { role: "user", content: `User: ${userMessage}\nAssistant: ${reply.slice(0, 1500)}` },
+      ],
+    });
+    const facts = JSON.parse(message.content ?? "[]") as string[];
+    for (const f of facts.slice(0, 5)) {
+      if (typeof f === "string" && f.trim().length > 3) {
+        await memoryAdd(f.trim(), ["auto"]);
+      }
+    }
+  } catch {
+    /* consolidation is best-effort; never break the turn */
+  }
 }
 
 const MAX_STEPS = 6;
 
-export async function runAgent(userMessage: string, history: ChatMessage[] = []): Promise<TurnResult> {
-  const recalled = memorySearch(userMessage, 5);
+export async function runAgentStream(
+  userMessage: string,
+  history: ChatMessage[],
+  onEvent: (e: AgentEvent) => void
+): Promise<void> {
+  const recalled = await memorySearch(userMessage, 5);
   const memoryBlock =
     recalled.length > 0
       ? `\n\nWhat you remember about the user:\n${recalled.map((m) => `- ${m.text}`).join("\n")}`
@@ -135,24 +195,80 @@ export async function runAgent(userMessage: string, history: ChatMessage[] = [])
 
   let steps = 0;
   let model = config.fastModel;
+  let totalUsage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  let finalReply = "";
+
   for (;;) {
     steps++;
-    // Fast model for tool routing; escalate to the reasoning model when the
-    // conversation needs deep thinking (long histories / complex asks).
     const needsReasoning = messages.length > 6 || userMessage.length > 500;
     model = needsReasoning ? config.reasoningModel : config.fastModel;
 
-    const { message } = await chatComplete({ model, messages, tools: TOOLS });
-    messages.push(message);
+    let assembled: ChatMessage | undefined;
+    for await (const chunk of chatStream({ model, messages, tools: TOOLS })) {
+      if (chunk.delta) onEvent({ type: "token", token: chunk.delta });
+      if (chunk.message) assembled = chunk.message;
+      if (chunk.usage) totalUsage = addUsage(totalUsage, chunk.usage);
+      if (chunk.model) model = chunk.model;
+    }
+    if (!assembled) throw new Error("Token Factory returned no message");
+    messages.push(assembled);
 
-    const calls = message.tool_calls ?? [];
+    const calls = assembled.tool_calls ?? [];
     if (calls.length === 0 || steps >= MAX_STEPS) {
-      return { reply: message.content ?? "", model, steps };
+      finalReply = assembled.content ?? "";
+      break;
     }
     for (const call of calls) {
-      const args = JSON.parse(call.function.arguments || "{}") as Record<string, string>;
+      onEvent({ type: "tool", name: call.function.name });
+      let args: Record<string, string> = {};
+      try {
+        args = JSON.parse(call.function.arguments || "{}");
+      } catch {
+        /* keep empty */
+      }
       const out = await executeTool(call.function.name, args).catch((e: Error) => ({ error: e.message }));
       messages.push(toolResult(call.id, call.function.name, out));
     }
   }
+
+  onEvent({
+    type: "done",
+    reply: finalReply,
+    model,
+    steps,
+    usage: totalUsage,
+    costUsd: estimateCost(totalUsage),
+  });
+
+  // Learn in the background — never blocks the delivered response.
+  await consolidateMemory(userMessage, finalReply);
+}
+
+export interface TurnResult {
+  reply: string;
+  model: string;
+  steps: number;
+  usage: Usage;
+  costUsd: number | null;
+}
+
+/** Non-streaming wrapper (kept for simple clients). */
+export async function runAgent(userMessage: string, history: ChatMessage[] = []): Promise<TurnResult> {
+  let reply = "";
+  let model = "";
+  let steps = 0;
+  let usage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  let costUsd: number | null = null;
+  await runAgentStream(userMessage, history, (e) => {
+    if (e.type === "done") {
+      reply = e.reply;
+      model = e.model;
+      steps = e.steps;
+      usage = e.usage;
+      costUsd = e.costUsd;
+    } else if (e.type === "error") {
+      throw new Error(e.error);
+    }
+  });
+  return { reply, model, steps, usage, costUsd };
 }

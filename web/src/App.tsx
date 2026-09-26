@@ -1,10 +1,31 @@
 import { useEffect, useRef, useState } from "react";
-import { api, type Memory, type Skill } from "./api";
+import { api, chatStream, type Memory, type Skill } from "./api";
 
 interface Msg {
   role: "user" | "assistant";
   content: string;
   meta?: string;
+}
+
+interface SessionUsage {
+  tokens: number;
+  costUsd: number | null;
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  remember: "yaad kar raha hun…",
+  recall: "yaadein dhoondh raha hun…",
+  web_search: "web pe dekh raha hun…",
+  run_skill: "skill chala raha hun…",
+};
+
+function shortModel(m: string): string {
+  const parts = m.split("/");
+  return parts[parts.length - 1] || m;
+}
+
+function fmtTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
 }
 
 export default function App() {
@@ -16,11 +37,15 @@ export default function App() {
   ]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
   const [memories, setMemories] = useState<Memory[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
   const [tab, setTab] = useState<"memory" | "skills">("memory");
   const [serverOk, setServerOk] = useState<boolean | null>(null);
+  const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
+  const [listening, setListening] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const recogRef = useRef<any>(null);
 
   useEffect(() => {
     api.health().then(() => setServerOk(true)).catch(() => setServerOk(false));
@@ -30,31 +55,81 @@ export default function App() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, busy]);
+  }, [messages, busy, status]);
 
   const refreshMemories = () => api.memories().then(setMemories).catch(() => {});
+
+  function toggleVoice() {
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) {
+      setInput((p) => p); // no-op; button hidden when unsupported (see below)
+      return;
+    }
+    if (listening) {
+      recogRef.current?.stop();
+      setListening(false);
+      return;
+    }
+    const recog = new SR();
+    recog.lang = "hi-IN";
+    recog.interimResults = false;
+    recog.onresult = (e: any) => {
+      const text = e.results[0][0].transcript as string;
+      setInput((p) => (p ? `${p} ${text}` : text));
+    };
+    recog.onend = () => setListening(false);
+    recog.onerror = () => setListening(false);
+    recogRef.current = recog;
+    recog.start();
+    setListening(true);
+  }
+
+  const voiceSupported =
+    typeof window !== "undefined" &&
+    ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
 
   async function send() {
     const text = input.trim();
     if (!text || busy) return;
     setInput("");
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    setMessages((p) => [...p, { role: "user", content: text }]);
+    setMessages((p) => [...p, { role: "user", content: text }, { role: "assistant", content: "" }]);
     setBusy(true);
+    setStatus("soch raha hun…");
+    const idx = messages.length + 1; // index of the placeholder assistant message
+
+    const patch = (content: string, meta?: string) =>
+      setMessages((p) => p.map((m, i) => (i === idx ? { ...m, content, meta: meta ?? m.meta } : m)));
+
     try {
-      const turn = await api.chat(text, history);
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: turn.reply, meta: `${turn.model.split("/").pop()} · ${turn.steps} steps` },
-      ]);
-      refreshMemories();
-    } catch (e) {
-      setMessages((p) => [
-        ...p,
-        { role: "assistant", content: `Server se baat nahi ho payi: ${(e as Error).message}` },
-      ]);
+      let acc = "";
+      await chatStream(text, history, (e) => {
+        if (e.type === "token") {
+          acc += e.token;
+          patch(acc);
+          setStatus("");
+        } else if (e.type === "tool") {
+          setStatus(TOOL_LABELS[e.name] ?? `${e.name}…`);
+        } else if (e.type === "done") {
+          const bits = [`${shortModel(e.model)}`, `${e.steps} steps`, `${fmtTokens(e.usage.total_tokens)} tokens`];
+          if (e.costUsd != null) bits.push(`$${e.costUsd.toFixed(4)}`);
+          patch(e.reply || acc, bits.join(" · "));
+          setSession((s) => ({
+            tokens: s.tokens + e.usage.total_tokens,
+            costUsd: s.costUsd == null && e.costUsd == null ? null : (s.costUsd ?? 0) + (e.costUsd ?? 0),
+          }));
+          setStatus("");
+          refreshMemories();
+        } else if (e.type === "error") {
+          patch(`Server se baat nahi ho payi: ${e.error}`);
+          setStatus("");
+        }
+      });
+    } catch (err) {
+      patch(`Server se baat nahi ho payi: ${(err as Error).message}`);
     } finally {
       setBusy(false);
+      setStatus("");
     }
   }
 
@@ -100,10 +175,10 @@ export default function App() {
                 </div>
               </div>
             ))}
-            {busy && (
+            {busy && status && (
               <div className="flex justify-start">
-                <div className="bg-neutral-900 border gold-border rounded-2xl px-4 py-2.5 text-sm text-neutral-400">
-                  soch raha hun…
+                <div className="bg-neutral-900 border gold-border rounded-2xl px-4 py-2.5 text-sm text-neutral-400 animate-pulse">
+                  {status}
                 </div>
               </div>
             )}
@@ -112,11 +187,20 @@ export default function App() {
 
           <div className="border-t gold-border p-3">
             <div className="flex gap-2">
+              {voiceSupported && (
+                <button
+                  onClick={toggleVoice}
+                  title="Voice input"
+                  className={`rounded-xl px-3 py-2.5 text-sm border gold-border ${listening ? "bg-red-900 text-red-200" : "bg-neutral-900 text-neutral-300"}`}
+                >
+                  {listening ? "●" : "🎙"}
+                </button>
+              )}
               <input
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && send()}
-                placeholder="Yaad se kuch kaho…"
+                placeholder={listening ? "Bol rahe ho… sun raha hun" : "Yaad se kuch kaho…"}
                 className="flex-1 bg-neutral-900 border gold-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-yellow-500 placeholder:text-neutral-600"
               />
               <button
@@ -130,6 +214,12 @@ export default function App() {
             </div>
             <p className="text-[10px] text-neutral-600 mt-2 text-center">
               Powered by NVIDIA Nemotron on Nebius Token Factory · memory stays on your machine
+              {session.tokens > 0 && (
+                <span>
+                  {" "}· session: {fmtTokens(session.tokens)} tokens
+                  {session.costUsd != null && ` · $${session.costUsd.toFixed(4)}`}
+                </span>
+              )}
             </p>
           </div>
         </main>
