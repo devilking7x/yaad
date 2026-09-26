@@ -1,7 +1,7 @@
 import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
 import { memoryAdd, memorySearch, memorySupersede, currentMems } from "./memory.js";
-import { dream } from "./dream.js";
+import { dream, dreamSkills } from "./dream.js";
 import { addReminder } from "./reminders.js";
 import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
@@ -178,7 +178,8 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       }));
     case "dream": {
       const r = await dream();
-      return { insights: r.insights, note: r.note };
+      const s = await dreamSkills();
+      return { insights: r.insights, note: r.note, draftedSkills: s.drafted };
     }
     case "web_search":
       return webSearch(args.query, 5);
@@ -226,7 +227,7 @@ function systemPrompt(): string {
     "Use `recall` when you need more context.",
     "Never claim to remember something you were not given.",
     "Memory is versioned: when the user corrects or changes a fact, save the new fact and the OLD one is automatically retired (kept as history, not injected).",
-    "Use `dream` when the user asks for insights or says 'sapne dekho' — it finds patterns across their memories.",
+    "Use `dream` when the user asks for insights or says 'sapne dekho' — it finds patterns across their memories and drafts new skills for repeated workflows (user approves drafts).",
     "",
     "REMINDERS: use `set_reminder` when the user asks to be reminded. Convert their",
     "words to an ISO 8601 datetime with +05:30 offset, using the current time above.",

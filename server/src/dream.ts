@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { currentMems, memoryAdd, type Memory } from "./memory.js";
 import { chatComplete } from "./nebius.js";
+import { draftExists, saveDraft } from "./skills.js";
 
 // "Dreaming" — background memory consolidation (OpenClaw Dreaming / Letta
 // sleep-time pattern): cluster related memories, and when a cluster has
@@ -77,4 +78,70 @@ export async function dream(): Promise<{ insights: string[]; note: string }> {
       ? `${insights.length} naye insight mile.`
       : "Is baar koi naya pattern nahi mila — agle sapne me phir koshish karenge.",
   };
+}
+
+/**
+ * Skill dreaming — the self-improving step. When the user's memories show a
+ * REPEATED workflow (not a one-off fact), draft a reusable SKILL.md pack for it.
+ * Drafts are NEVER auto-installed: they land in the drafts inbox and need the
+ * user's one-tap approval. That approval gate is the whole point.
+ */
+export async function dreamSkills(): Promise<{ drafted: string[]; note: string }> {
+  if (!config.nebiusApiKey || !config.fastModel) {
+    return { drafted: [], note: "" };
+  }
+  const mems = currentMems().filter((m) => !m.tags.includes("insight") && !m.tags.includes("skill-draft"));
+  if (mems.length < 5) return { drafted: [], note: "" };
+
+  const sample = mems
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 25)
+    .map((m) => `- ${m.text}`)
+    .join("\n");
+
+  let raw = "";
+  try {
+    const { message } = await chatComplete({
+      model: config.fastModel,
+      temperature: 0.3,
+      maxTokens: 900,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Tum Yaad ho — ek personal AI jo khud ko improve karta hai. Neeche user ki yaadein hain. " +
+            "Agar inme koi DOHRAYA JAANE WALA workflow/routine dikhe (jaise roz subah kuch check karna, " +
+            "hafte me ek baar koi report banana), to uske liye ek SKILL PACK draft karo. " +
+            "Format EXACTLY:\n---\nname: <short-dash-name>\ndescription: <1 line>\nwhen: <kab use kare>\n---\n<clear instructions, Roman Hindi ok>\n\n" +
+            "Rules: max 2 packs; sirf asli repeated pattern par; one-off facts par skill mat banao. " +
+            "Agar koi repeated workflow nahi dikhta to exactly likho: NONE. Packs ko '```' se wrap mat karo.",
+        },
+        { role: "user", content: `YAADEIN:\n${sample}` },
+      ],
+    });
+    raw = (message.content ?? "").trim();
+  } catch {
+    return { drafted: [], note: "" };
+  }
+  if (!raw || /^none\.?$/i.test(raw)) return { drafted: [], note: "" };
+
+  // Split on front-matter boundaries: each pack starts with ---\nname:
+  const packs = raw.split(/(?=^---\nname:)/m).map((p) => p.trim()).filter(Boolean).slice(0, 2);
+  const drafted: string[] = [];
+  for (const pack of packs) {
+    const nameMatch = pack.match(/^---\nname:\s*([a-z0-9-]+)/m);
+    if (!nameMatch) continue;
+    const name = nameMatch[1].slice(0, 40);
+    if (draftExists(name)) continue;
+    const withDraft = pack.replace(/^---\n/, "---\ndraft: true\n");
+    if (withDraft.length < 120 || withDraft.length > 8000) continue;
+    try {
+      saveDraft(name, withDraft);
+      await memoryAdd(`Naya skill draft taiyaar: ${name} — approval ka wait kar raha hai.`, ["skill-draft", "dream"], []);
+      drafted.push(name);
+    } catch {
+      /* keep dreaming */
+    }
+  }
+  return { drafted, note: drafted.length ? `${drafted.length} skill draft taiyaar.` : "" };
 }

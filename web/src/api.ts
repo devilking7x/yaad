@@ -133,7 +133,7 @@ export interface Settings {
 
 export interface Nudge {
   id: string;
-  kind: "reminder" | "briefing" | "insight";
+  kind: "reminder" | "briefing" | "insight" | "skill-draft";
   text: string;
   createdAt: string;
   action: string;
@@ -157,6 +157,11 @@ export const api = {
   memories: (): Promise<Memory[]> => req("/api/memories"),
   deleteMemory: (id: string) => req(`/api/memories/${id}`, { method: "DELETE" }),
   skills: (): Promise<Skill[]> => req("/api/skills"),
+  skillDrafts: {
+    list: (): Promise<Skill[]> => req("/api/skills/drafts"),
+    approve: (name: string) => req(`/api/skills/drafts/${encodeURIComponent(name)}/approve`, { method: "POST" }),
+    discard: (name: string) => req(`/api/skills/drafts/${encodeURIComponent(name)}/discard`, { method: "POST" }),
+  },
   installSkill: (name: string, url: string) =>
     req("/api/skills/install", { method: "POST", body: JSON.stringify({ name, url }) }),
   nudges: {

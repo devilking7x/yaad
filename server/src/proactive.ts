@@ -6,11 +6,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
-import { dream } from "./dream.js";
+import { dream, dreamSkills } from "./dream.js";
+import { listDrafts } from "./skills.js";
 import { memoryList } from "./memory.js";
 import { listReminders } from "./reminders.js";
 
-export type NudgeKind = "reminder" | "briefing" | "insight";
+export type NudgeKind = "reminder" | "briefing" | "insight" | "skill-draft";
 export interface Nudge {
   id: string;
   kind: NudgeKind;
@@ -98,6 +99,21 @@ export function computeNudges(): Nudge[] {
     }
   }
 
+  // 3b. Unapproved skill drafts — Yaad dreamed up a new capability
+  for (const d of listDrafts().slice(0, 2)) {
+    const id = `skill:${d.name}`;
+    if (!seen.has(id)) {
+      out.push({
+        id,
+        kind: "skill-draft",
+        text: `✨ Naya skill taiyaar: ${d.name} — ${d.description.slice(0, 80)}`,
+        createdAt: now,
+        action: "open-skills",
+        refId: d.name,
+      });
+    }
+  }
+
   // 3. Unseen dream insights (newest 3)
   const insights = memoryList()
     .filter((m) => m.tags.includes("insight"))
@@ -150,6 +166,7 @@ export function maybeAutoDream(): void {
   // dream() writes via memoryAdd, which serializes internally; the `dreaming`
   // flag is enough to prevent overlapping runs.
   dream()
+    .then(() => dreamSkills())
     .then(() => {
       const s2 = loadState();
       s2.memCountAtDream = memoryList().length;

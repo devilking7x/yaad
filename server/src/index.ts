@@ -14,7 +14,7 @@ import {
   listSessions,
 } from "./sessions.js";
 import { getSettings, setSettings } from "./settings.js";
-import { installSkill, listSkills } from "./skills.js";
+import { approveDraft, discardDraft, installSkill, listDrafts, listSkills } from "./skills.js";
 import { logSecurity, safeError, securityHeaders } from "./security.js";
 import { todaySpendUsd } from "./spend.js";
 
@@ -201,6 +201,22 @@ app.delete("/api/memories/:id", (req, res) => {
 });
 
 app.get("/api/skills", (_req, res) => res.json(listSkills()));
+
+app.get("/api/skills/drafts", (_req, res) => res.json(listDrafts()));
+
+app.post("/api/skills/drafts/:name/approve", (req, res) => {
+  try {
+    const skill = approveDraft(req.params.name);
+    logSecurity("skill-draft-approved", skill.name, req.ip);
+    res.json({ approved: true, skill });
+  } catch (e) {
+    res.status(400).json({ error: safeError(e) });
+  }
+});
+
+app.post("/api/skills/drafts/:name/discard", (req, res) => {
+  res.json({ discarded: discardDraft(req.params.name) });
+});
 
 app.post("/api/skills/install", async (req, res) => {
   try {

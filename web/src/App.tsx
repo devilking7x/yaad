@@ -57,6 +57,7 @@ export default function App() {
   const [status, setStatus] = useState("");
   const [memories, setMemories] = useState<Memory[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [drafts, setDrafts] = useState<Skill[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tab, setTab] = useState<"memory" | "skills" | "reminders">("memory");
@@ -89,6 +90,7 @@ export default function App() {
     api.health().then(() => setServerOk(true)).catch(() => setServerOk(false));
     api.memories().then(setMemories).catch(() => {});
     api.skills().then(setSkills).catch(() => {});
+    api.skillDrafts.list().then(setDrafts).catch(() => {});
     api.reminders.list().then(setReminders).catch(() => {});
     api.sessions.list().then(setSessions).catch(() => {});
     api.settings
@@ -174,7 +176,22 @@ export default function App() {
     } else if (n.action === "open-memory") {
       setTab("memory");
       setDrawerOpen(true);
+    } else if (n.action === "open-skills") {
+      setTab("skills");
+      setDrawerOpen(true);
+      api.skillDrafts.list().then(setDrafts).catch(() => {});
     }
+  }
+
+  async function approveDraft(name: string) {
+    await api.skillDrafts.approve(name).catch(() => {});
+    api.skillDrafts.list().then(setDrafts).catch(() => {});
+    api.skills().then(setSkills).catch(() => {});
+  }
+
+  async function discardDraft(name: string) {
+    await api.skillDrafts.discard(name).catch(() => {});
+    api.skillDrafts.list().then(setDrafts).catch(() => {});
   }
 
   const refreshMemories = () => api.memories().then(setMemories).catch(() => {});
@@ -468,7 +485,7 @@ export default function App() {
                   onClick={() => nudgeAction(n)}
                   className="text-xs px-2 py-1 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30"
                 >
-                  {n.action === "done-reminder" ? "✅ Ho gaya" : n.action === "send-briefing" ? "☀️ Banao" : "🧠 Dekho"}
+                  {n.action === "done-reminder" ? "✅ Ho gaya" : n.action === "send-briefing" ? "☀️ Banao" : n.action === "open-skills" ? "✨ Dekho" : "🧠 Dekho"}
                 </button>
                 <button
                   onClick={() => dismissNudge(n.id)}
@@ -860,6 +877,22 @@ export default function App() {
             )}
             {tab === "skills" && (
               <>
+                {drafts.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold gold-text px-1">✨ Yaad ne ye skills banaye — approve karo?</p>
+                    {drafts.map((d) => (
+                      <div key={d.name} className="bg-yellow-950/40 border border-yellow-600/50 rounded-xl p-2.5 text-xs">
+                        <p className="font-semibold text-yellow-300">{d.name}</p>
+                        <p className="text-neutral-400 mt-0.5">{d.description}</p>
+                        <p className="text-neutral-600 mt-0.5 italic">{d.when}</p>
+                        <div className="flex gap-2 mt-2">
+                          <button onClick={() => approveDraft(d.name)} className="px-2 py-1 rounded-lg bg-yellow-600 text-black font-semibold hover:bg-yellow-500">Approve ✓</button>
+                          <button onClick={() => discardDraft(d.name)} className="px-2 py-1 rounded-lg text-neutral-400 hover:text-neutral-200">Discard ✕</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {skills.length === 0 ? (
                   <p className="text-xs text-neutral-600 p-2">
                     Koi skill pack nahi. Neeche URL se install karo ya <code>skills/</code> me markdown files daalo.

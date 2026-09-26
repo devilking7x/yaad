@@ -17,6 +17,11 @@ export interface Skill {
   description: string;
   when: string;
   instructions: string;
+  draft: boolean;
+}
+
+function cleanName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
 function parseSkill(file: string, raw: string): Skill | null {
@@ -27,24 +32,78 @@ function parseSkill(file: string, raw: string): Skill | null {
     const line = header.split("\n").find((l) => l.startsWith(`${k}:`));
     return line ? line.slice(k.length + 1).trim() : "";
   };
-  const name = get("name") || path.basename(file, ".md");
-  return { name, description: get("description"), when: get("when"), instructions: m[2].trim() };
+  const name = get("name") || path.basename(file, ".md").replace(/^_draft-/, "");
+  return {
+    name,
+    description: get("description"),
+    when: get("when"),
+    instructions: m[2].trim(),
+    draft: /^draft:\s*true$/m.test(header),
+  };
 }
 
-export function listSkills(): Skill[] {
+function readAll(): Array<{ file: string; skill: Skill }> {
   const dir = path.resolve(config.skillsDir);
   if (!fs.existsSync(dir)) return [];
-  const out: Skill[] = [];
+  const out: Array<{ file: string; skill: Skill }> = [];
   for (const f of fs.readdirSync(dir)) {
     if (!f.endsWith(".md")) continue;
     const skill = parseSkill(f, fs.readFileSync(path.join(dir, f), "utf-8"));
-    if (skill) out.push(skill);
+    if (skill) out.push({ file: f, skill });
   }
   return out;
 }
 
+/** Active skills only — drafts are never runnable until approved. */
+export function listSkills(): Skill[] {
+  return readAll().filter((s) => !s.skill.draft).map((s) => s.skill);
+}
+
+/** Draft inbox: skills Yaad dreamed up, waiting for the user's approval. */
+export function listDrafts(): Skill[] {
+  return readAll().filter((s) => s.skill.draft).map((s) => s.skill);
+}
+
 export function getSkill(name: string): Skill | undefined {
   return listSkills().find((s) => s.name === name);
+}
+
+export function draftExists(name: string): boolean {
+  const clean = cleanName(name);
+  return readAll().some((s) => s.skill.name === clean);
+}
+
+/** Save a model-drafted skill pack into the drafts inbox (not runnable). */
+export function saveDraft(name: string, md: string): void {
+  const clean = cleanName(name);
+  if (!clean) throw new Error("Invalid draft name");
+  const dir = path.resolve(config.skillsDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `_draft-${clean}.md`), md, "utf-8");
+}
+
+/** Approve a draft: it becomes a real, runnable skill. */
+export function approveDraft(name: string): Skill {
+  const clean = cleanName(name);
+  const dir = path.resolve(config.skillsDir);
+  const found = readAll().find((s) => s.skill.draft && s.skill.name === clean);
+  if (!found) throw new Error("Draft nahi mila");
+  const raw = fs.readFileSync(path.join(dir, found.file), "utf-8");
+  const active = raw.replace(/^draft:\s*true\n/m, "");
+  fs.writeFileSync(path.join(dir, `${clean}.md`), active, "utf-8");
+  fs.unlinkSync(path.join(dir, found.file));
+  const skill = parseSkill(`${clean}.md`, active);
+  if (!skill) throw new Error("Draft corrupt nikla");
+  return skill;
+}
+
+export function discardDraft(name: string): boolean {
+  const clean = cleanName(name);
+  const dir = path.resolve(config.skillsDir);
+  const found = readAll().find((s) => s.skill.draft && s.skill.name === clean);
+  if (!found) return false;
+  fs.unlinkSync(path.join(dir, found.file));
+  return true;
 }
 
 /**
@@ -52,7 +111,7 @@ export function getSkill(name: string): Skill | undefined {
  * Validates the front-matter, then saves it into the skills directory.
  */
 export async function installSkill(name: string, url: string): Promise<Skill> {
-  const clean = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  const clean = cleanName(name);
   if (!clean) throw new Error("Give the skill a valid name (letters, numbers, dashes)");
   // SSRF guard: safeFetch validates the URL AND every redirect hop,
   // so a 302 to an internal address can never slip through.

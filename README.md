@@ -81,6 +81,14 @@ every minute whether there's something worth telling you *right now*:
 No model calls, no spam (seen-state is idempotent), offline-safe. And **auto-dreaming**:
 when enough new memories pile up, Yaad consolidates them in the background by itself.
 
+### 🌱 Self-improving: Yaad writes its own skills
+
+When dreaming spots a **repeated workflow** in your memories (not a one-off fact), it drafts
+a full SKILL.md pack for it — and drops it in a **draft inbox**. Nothing auto-installs:
+you review and hit **Approve ✓** (or Discard ✕) in the Skills tab. A `✨ Naya skill taiyaar`
+nudge tells you the moment one lands. Drafts are never runnable until approved — the
+approval gate is the whole point.
+
 ### 🔌 MCP server — Yaad's brain, open to other agents
 
 `pnpm mcp` starts a stdio JSON-RPC server exposing Yaad's memory to any MCP client
@@ -150,6 +158,8 @@ The static site is just the UI — the chat needs the Express server. Deploy `se
 | `DELETE /api/memories/:id` | Delete a memory |
 | `GET /api/memories/export` | Full memory dump |
 | `GET /api/skills` · `POST /api/skills/install` | List / install a skill pack from URL |
+| `GET /api/skills/drafts` · `POST /api/skills/drafts/:name/approve|discard` | Self-drafted skill inbox (approval gate) |
+| `GET /api/nudges` · `POST /api/nudges/seen` | Proactive nudges (reminders, briefing, insights, skill drafts) |
 | `GET/POST /api/reminders` · `POST /api/reminders/:id/done` | Reminders |
 | `GET/POST /api/sessions` (+ `/:id`, `/:id/messages`) | Chat session history |
 | `GET/POST /api/settings` | Custom instructions + spend readout |
