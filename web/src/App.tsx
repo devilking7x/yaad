@@ -29,12 +29,20 @@ const TOOL_LABELS: Record<string, string> = {
   dream: "sapne dekh raha hun…",
 };
 
-const QUICK_ACTIONS = [
-  "Mere baare me kya yaad hai tumhe?",
-  "💤 Sapne dekho aur insights batao",
-  "Good morning! Mera briefing do.",
-  "Aaj ki top tech news batao.",
-  "Kal subah 8 baje gym yaad dilana.",
+/** Time-aware greeting — "Good morning!" at 1am was a real bug judges would spot. */
+function daypart(): { icon: string; en: string } {
+  const h = new Date().getHours();
+  if (h >= 5 && h < 12) return { icon: "☀️", en: "Good morning" };
+  if (h >= 12 && h < 17) return { icon: "🌤️", en: "Good afternoon" };
+  if (h >= 17 && h < 22) return { icon: "🌆", en: "Good evening" };
+  return { icon: "🌙", en: "Good night" };
+}
+
+const SUGGESTIONS = [
+  { icon: "🧠", title: "Mujhe yaad karo", sub: "Naam, pasand, routine batao — main bhoolunga nahi", prompt: "Mere baare me kya yaad hai tumhe?" },
+  { icon: "💤", title: "Sapne dekho", sub: "Yaadon se insights nikalo", prompt: "💤 Sapne dekho aur insights batao" },
+  { icon: "☀️", title: "Briefing do", sub: "Mausam, taaza khabrein, meri priorities", prompt: "Mera briefing do." },
+  { icon: "🔍", title: "Gehri research", sub: "Kisi bhi topic pe cited research", prompt: "Aaj ki top tech news pe gehri research karo." },
 ];
 
 function shortModel(m: string): string {
@@ -47,12 +55,7 @@ function fmtTokens(n: number): string {
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      role: "assistant",
-      content: "Namaste! Main Yaad hun — tumhara personal AI jo tumhe yaad rakhta hai. Kuch batao apne baare me, ya kuch pucho.",
-    },
-  ]);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -85,7 +88,6 @@ export default function App() {
   const [serverOk, setServerOk] = useState<boolean | null>(null);
   const [session, setSession] = useState<SessionUsage>({ tokens: 0, costUsd: null });
   const [listening, setListening] = useState(false);
-  const [welcomeDismissed, setWelcomeDismissed] = useState(false);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<any>(null);
@@ -366,7 +368,7 @@ export default function App() {
       try {
         const data = JSON.parse(r.result as string);
         const res = await api.brain.import(data);
-        alert(`✅ ${res.restored} cheezein restore ho gayin`);
+        alert(`✅ Import shuru ho gaya — ${res.memories} yaadein background me restore ho rahi hain`);
         refreshMemories();
         api.settings.get().then((s) => setCustomInstructions(s.customInstructions ?? "")).catch(() => {});
       } catch {
@@ -448,7 +450,8 @@ export default function App() {
           // Persist this turn into the active session (or create one).
           persistTurn(text, finalReply);
         } else if (e.type === "error") {
-          patch((m) => ({ ...m, content: `Server se baat nahi ho payi: ${e.error}` }));
+          const prefix = e.budgetExceeded ? "💸 " : "";
+          patch((m) => ({ ...m, content: `${prefix}Server se baat nahi ho payi: ${e.error}` }));
           setStatus("");
         }
       },
@@ -487,7 +490,7 @@ export default function App() {
     refreshMemories();
   }
 
-  const showWelcome = !welcomeDismissed && memories.length === 0 && messages.length <= 1;
+  const dp = daypart();
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0f" }}>
@@ -662,19 +665,44 @@ export default function App() {
         {/* Chat */}
         <main className="flex-1 flex flex-col min-h-[60vh]">
           <div className="flex-1 overflow-y-auto chat-scroll px-4 py-4 space-y-3">
-            {showWelcome && (
-              <div className="bg-neutral-900 border gold-border rounded-2xl p-4 text-sm relative">
-                <button
-                  onClick={() => setWelcomeDismissed(true)}
-                  className="absolute top-2 right-3 text-neutral-600 hover:text-neutral-300"
-                >
-                  ✕
-                </button>
-                <p className="gold-text font-semibold mb-1">👋 Pehli baar mile ho?</p>
-                <p className="text-neutral-300 text-xs leading-relaxed">
-                  Apne baare me kuch batao — naam, kaam, pasand, routine. Main sab yaad rakhunga,
-                  aur agli baar khud use karunga. Try karo neeche wale chips.
+            {messages.length === 0 && !busy && (
+              <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-10 relative min-h-[50vh]">
+                {/* soft gold glow */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: "radial-gradient(ellipse 60% 45% at 50% 38%, rgba(212,160,23,0.10), transparent 70%)" }}
+                />
+                <h2 className="text-5xl font-bold gold-text tracking-tight relative">Yaad</h2>
+                <p className="text-neutral-400 text-sm mt-3 max-w-xs relative leading-relaxed">
+                  {dp.icon} {dp.en}! Main tumhara personal AI hun —{" "}
+                  <span className="text-neutral-200 font-medium">jo kabhi nahi bhoolta.</span>
                 </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-8 w-full max-w-md relative">
+                  {SUGGESTIONS.map((s) => (
+                    <button
+                      key={s.title}
+                      onClick={() => send(s.prompt)}
+                      className="text-left bg-neutral-900/80 border gold-border rounded-2xl p-3.5 hover:border-yellow-500 hover:bg-neutral-900 transition-colors"
+                    >
+                      <p className="text-sm">
+                        {s.icon} <span className="font-medium text-neutral-100">{s.title}</span>
+                      </p>
+                      <p className="text-[11px] text-neutral-500 mt-1">{s.sub}</p>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[11px] text-neutral-600 mt-6 relative">
+                  📷 tasveer bhejo, 🎙 bolo, ya bas likho — sab yaad rahega
+                </p>
+                {(memories.length > 0 || graph.nodes.length > 0) && (
+                  <div className="flex gap-4 mt-3 text-[11px] text-neutral-500 relative">
+                    {memories.length > 0 && <span>🧠 {memories.length} yaadein</span>}
+                    {graph.nodes.length > 0 && <span>🕸️ {graph.nodes.length} entities</span>}
+                    {memories.some((m) => m.tags.includes("insight")) && (
+                      <span>✨ {memories.filter((m) => m.tags.includes("insight")).length} insights</span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {showBriefing && serverOk && (
@@ -685,14 +713,14 @@ export default function App() {
                 >
                   ✕
                 </button>
-                <p className="gold-text font-semibold mb-1">☀️ Good morning!</p>
+                <p className="gold-text font-semibold mb-1">{dp.icon} {dp.en}!</p>
                 <p className="text-neutral-300 text-xs leading-relaxed mb-2">
                   Aaj ki briefing bana dun — mausam, taaza khabrein, aur tumhari yaadon se priorities?
                 </p>
                 <button
                   onClick={() => {
                     dismissBriefing();
-                    send("Good morning! Mera briefing do.");
+                    send(`${dp.en}! Mera briefing do.`);
                   }}
                   className="bg-yellow-600 hover:bg-yellow-500 text-black font-semibold rounded-xl px-4 py-1.5 text-xs"
                 >
@@ -766,19 +794,6 @@ export default function App() {
                 </button>
               </div>
             )}
-            {!busy && messages.length <= 3 && (
-              <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
-                {QUICK_ACTIONS.map((q) => (
-                  <button
-                    key={q}
-                    onClick={() => send(q)}
-                    className="shrink-0 text-xs bg-neutral-900 border gold-border rounded-full px-3 py-1.5 text-neutral-300 hover:border-yellow-500"
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="flex gap-2">
               <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPickImage} />
               <button
@@ -849,7 +864,7 @@ export default function App() {
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`flex-1 py-2.5 text-xs font-semibold uppercase tracking-wider ${
+                className={`flex-1 py-2.5 px-1 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap ${
                   tab === t ? "gold-text border-b-2 border-yellow-600" : "text-neutral-500"
                 }`}
               >
@@ -888,11 +903,14 @@ export default function App() {
                   className="w-full bg-neutral-900 border gold-border rounded-xl px-3 py-1.5 text-xs outline-none focus:border-yellow-500 placeholder:text-neutral-600 mb-1"
                 />
                 {filteredMemories.length === 0 ? (
-                  <p className="text-xs text-neutral-600 p-2">
-                    {memories.length === 0
-                      ? "Abhi koi yaad nahi. Mujhse baat karo — main important cheezein khud save kar lunga."
-                      : "Kuch nahi mila."}
-                  </p>
+                  <div className="text-center py-8 px-4">
+                    <p className="text-3xl mb-2">🧠</p>
+                    <p className="text-xs text-neutral-500 leading-relaxed">
+                      {memories.length === 0
+                        ? <>Abhi koi yaad nahi.<br />Mujhse baat karo — main important cheezein khud save kar lunga.</>
+                        : "Kuch nahi mila."}
+                    </p>
+                  </div>
                 ) : (
                   filteredMemories.map((m) => (
                     <div key={m.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
@@ -977,7 +995,10 @@ export default function App() {
                   “Mujhe kal subah 8 baje yaad dilana” — bolo, Yaad khud reminder laga dega. Tab khula rakho ⏰
                 </p>
                 {reminders.length === 0 ? (
-                  <p className="text-xs text-neutral-600 p-2">Koi active reminder nahi.</p>
+                  <div className="text-center py-8 px-4">
+                    <p className="text-3xl mb-2">⏰</p>
+                    <p className="text-xs text-neutral-500">Koi active reminder nahi.</p>
+                  </div>
                 ) : (
                   reminders.map((r) => (
                     <div key={r.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
@@ -1001,9 +1022,13 @@ export default function App() {
             {tab === "jobs" && (
               <>
                 {jobs.length === 0 ? (
-                  <p className="text-xs text-neutral-600 p-2">
-                    Koi background job nahi. "Is par research karke background me bata dena" kaho — Yaad kaam karega, tum aaram karo.
-                  </p>
+                  <div className="text-center py-8 px-4">
+                    <p className="text-3xl mb-2">🔍</p>
+                    <p className="text-xs text-neutral-500 leading-relaxed">
+                      Koi background job nahi.<br />
+                      “Is par research karke background me bata dena” kaho — Yaad kaam karega, tum aaram karo.
+                    </p>
+                  </div>
                 ) : (
                   jobs.map((j) => (
                     <div key={j.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">

@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import dns from "node:dns";
 import type { NextFunction, Request, Response } from "express";
 import fs from "node:fs";
@@ -23,7 +24,7 @@ function rotateIfNeeded(file: string): void {
     const data = fs.readFileSync(file, "utf-8");
     const half = data.slice(-Math.floor(SECURITY_LOG_MAX_BYTES / 2));
     const cut = half.indexOf("\n");
-    fs.writeFileSync(file, (cut >= 0 ? half.slice(cut + 1) : half) + "\n", "utf-8");
+    atomicWriteFile(file, (cut >= 0 ? half.slice(cut + 1) : half) + "\n", "utf-8");
   } catch {
     /* best effort */
   }
@@ -34,8 +35,10 @@ export function logSecurity(event: string, detail: string, ip?: string): void {
   try {
     const file = logFile();
     rotateIfNeeded(file);
-    const line = `${new Date().toISOString()} [${event}]${ip ? ` ip=${ip}` : ""} ${detail}\n`;
-    fs.appendFileSync(file, line.slice(0, 2000), "utf-8");
+    // L4 fix: strip newlines — error text with \n enabled log forging.
+    const clean = String(detail).replace(/[\r\n]+/g, " ").slice(0, 500);
+    const line = `${new Date().toISOString()} [${event}]${ip ? ` ip=${ip}` : ""} ${clean}\n`;
+    fs.appendFileSync(file, line, "utf-8");
   } catch {
     /* logging must never break the request */
   }
@@ -84,7 +87,11 @@ function isPrivateV6(ip: string): boolean {
     l === "::" ||
     l.startsWith("fc") ||
     l.startsWith("fd") ||
-    l.startsWith("fe80") ||
+    // L2 fix: link-local is fe80::/10 (= fe80..febf), not just fe80.
+    l.startsWith("fe8") ||
+    l.startsWith("fe9") ||
+    l.startsWith("fea") ||
+    l.startsWith("feb") ||
     l.startsWith("fec0")
   );
 }

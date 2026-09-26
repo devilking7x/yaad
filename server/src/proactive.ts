@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 // Yaad Proactive Engine — the agent wakes up on its own.
 // Every poll decides: is there something worth telling the user RIGHT NOW?
 //   1. due reminders  2. morning briefing window  3. unseen dream insights
@@ -52,14 +53,24 @@ function loadState(): ProactiveState {
 function saveState(s: ProactiveState): void {
   try {
     fs.mkdirSync(config.memoryDir, { recursive: true });
-    fs.writeFileSync(stateFile(), JSON.stringify(s, null, 2), "utf-8");
+    atomicWriteFile(stateFile(), JSON.stringify(s, null, 2), "utf-8");
   } catch {
     /* never break a request */
   }
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  // M8 fix: server runs on UTC — use IST like spend.ts does, otherwise the
+  // "morning briefing" fires till 5:30pm IST and the date rolls over wrong.
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
+}
+
+function hourIST(): number {
+  // M8 fix: hour in Asia/Kolkata, not server-local (UTC on Render).
+  // (% 24 guards the "24" that hour12:false yields at midnight.)
+  return (
+    Number(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata", hour: "numeric", hour12: false })) % 24
+  );
 }
 
 /** All nudges worth showing right now. Pure computation — no model calls. */
@@ -86,8 +97,8 @@ export function computeNudges(): Nudge[] {
     }
   }
 
-  // 2. Morning briefing — once per day, before noon, only if there's a brain
-  const hour = new Date().getHours();
+  // 2. Morning briefing — once per day, before noon IST, only if there's a brain
+  const hour = hourIST();
   if (hour < 12 && st.lastBriefingDate !== today() && memoryList().length > 0) {
     const id = `brief:${today()}`;
     if (!seen.has(id)) {

@@ -108,9 +108,13 @@ export default function Graph({
 
   if (nodes.length === 0) {
     return (
-      <p className="text-xs text-neutral-600 p-2">
-        Abhi graph ke liye entities nahi hain — Yaad se baatein karo, wo khud entities nikalega.
-      </p>
+      <div className="text-center py-8 px-4">
+        <p className="text-3xl mb-2">🕸️</p>
+        <p className="text-xs text-neutral-500 leading-relaxed">
+          Abhi graph ke liye entities nahi hain.<br />
+          Yaad se baatein karo — wo khud entities nikalega.
+        </p>
+      </div>
     );
   }
 

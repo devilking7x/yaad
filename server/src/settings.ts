@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -30,6 +31,6 @@ export function setSettings(customInstructions: string): Settings {
     customInstructions: customInstructions.slice(0, 2000),
     updatedAt: new Date().toISOString(),
   };
-  fs.writeFileSync(file(), JSON.stringify(s, null, 2), "utf-8");
+  atomicWriteFile(file(), JSON.stringify(s, null, 2), "utf-8");
   return s;
 }

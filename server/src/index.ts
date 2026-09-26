@@ -143,7 +143,13 @@ app.post("/api/chat", chatLimit, async (req, res) => {
     res.json(result);
   } catch (e) {
     const msg = safeError(e);
-    if (msg.includes("budget")) logSecurity("budget-block", msg, req.ip);
+    if (msg.includes("budget")) {
+      logSecurity("budget-block", msg, req.ip);
+      // M5 fix: 429 + explicit flag so the UI can say "cap reached",
+      // not "server broken".
+      res.status(429).json({ error: msg, budgetExceeded: true });
+      return;
+    }
     res.status(500).json({ error: msg });
   }
 });
@@ -174,17 +180,39 @@ app.post("/api/chat/stream", chatLimit, async (req, res) => {
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
   });
+  // H3 fix: detect a dead client. Without this, a judge navigating away
+  // mid-stream left the agent burning tokens for all 6 steps, and res.write
+  // on a dead socket raised an unhandled error (Express 4 => process crash).
+  let clientGone = false;
+  res.on("close", () => {
+    if (!res.writableEnded) clientGone = true;
+  });
   const send = (type: string, data: unknown): void => {
-    res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+    if (clientGone || res.writableEnded) return;
+    try {
+      res.write(`event: ${type}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      /* socket died mid-write — nothing to do */
+    }
   };
   try {
-    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), { image, forceReasoning });
+    await runAgentStream(message, safeHistory as never, (e) => send(e.type, e), {
+      image,
+      forceReasoning,
+      isCancelled: () => clientGone,
+    });
   } catch (e) {
+    if (clientGone) return; // they're gone — nothing to tell them
     const msg = safeError(e);
-    if (msg.includes("budget")) logSecurity("budget-block", msg, req.ip);
-    send("error", { error: msg });
+    if (msg.includes("budget")) {
+      logSecurity("budget-block", msg, req.ip);
+      // M5: same 429 semantics as /api/chat, as an SSE error event.
+      send("error", { error: msg, budgetExceeded: true });
+    } else {
+      send("error", { error: msg });
+    }
   }
-  res.end();
+  if (!res.writableEnded) res.end();
 });
 
 app.get("/api/memories", (_req, res) => res.json(memoryList()));
@@ -385,11 +413,15 @@ app.post("/api/brain/import", (req, res) => {
       memories?: Array<{ text: string; tags?: string[] }>;
       reminders?: Array<{ text: string; remindAt: string }>;
     };
-    let restored = 0;
     if (settings?.customInstructions) {
       setSettings(settings.customInstructions);
-      restored++;
     }
+    // H2 fix: respond 202 immediately; the import (up to 500 embedding calls,
+    // minutes of work) runs detached. Awaiting everything before responding
+    // caused proxy timeouts -> client retries -> DUPLICATE memories.
+    const mems = (memories ?? []).slice(0, 500);
+    const rems = (reminders ?? []).slice(0, 200);
+    res.status(202).json({ ok: true, started: true, memories: mems.length, reminders: rems.length });
     // Import via the normal write paths so embeddings/validation apply.
     // Caps: 500 memories + 200 reminders, texts truncated — a hostile or
     // accidental giant backup can't DoS the server.
@@ -398,25 +430,24 @@ app.post("/api/brain/import", (req, res) => {
       // /api/brain/import was a budget-guard bypass: 500 unmetered calls/req.
       // (embed() now meters too, so the cap sees this spend.)
       checkBudget();
-      for (const m of (memories ?? []).slice(0, 500)) {
-        if (m.text) {
-          await memoryAdd(String(m.text).slice(0, 2000), m.tags ?? ["imported"]);
-          restored++;
-        }
+      // Idempotency: skip texts that already exist, so a retry never duplicates.
+      const seen = new Set(memoryList().map((m) => m.text.trim().toLowerCase()));
+      for (const m of mems) {
+        const text = String(m.text ?? "").slice(0, 2000).trim();
+        if (!text || seen.has(text.toLowerCase())) continue;
+        seen.add(text.toLowerCase());
+        await memoryAdd(text, m.tags ?? ["imported"]);
       }
-      for (const r of (reminders ?? []).slice(0, 200)) {
+      for (const r of rems) {
         try {
           if (r.text && r.remindAt) {
             addReminder(String(r.text).slice(0, 500), r.remindAt);
-            restored++;
           }
         } catch {
           /* skip bad dates */
         }
       }
-    })()
-      .then(() => res.json({ ok: true, restored }))
-      .catch((e) => res.status(500).json({ error: safeError(e) }));
+    })().catch((e) => console.error("brain import failed:", (e as Error).message));
   } catch (e) {
     res.status(400).json({ error: safeError(e) });
   }

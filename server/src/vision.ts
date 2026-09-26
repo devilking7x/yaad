@@ -1,4 +1,5 @@
 import { config } from "./config.js";
+import { estimateChatCost, recordSpend } from "./spend.js";
 
 // Vision: describe a user-shared image with a Nemotron vision model
 // (e.g. nvidia/nemotron-3-nano-omni) on Token Factory, so Yaad can
@@ -40,5 +41,10 @@ export async function describeImage(dataUrl: string): Promise<string> {
   const data = (await res.json()) as any;
   const text = data.choices?.[0]?.message?.content;
   if (!text) throw new Error("Vision model returned no description");
+  // C2 fix: vision was unmetered — record it so the daily cap stays honest.
+  const u = data.usage;
+  if (u && typeof u.prompt_tokens === "number" && typeof u.completion_tokens === "number") {
+    recordSpend(estimateChatCost({ prompt_tokens: u.prompt_tokens, completion_tokens: u.completion_tokens }));
+  }
   return text as string;
 }

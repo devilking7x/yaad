@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -32,7 +33,7 @@ function load(): SpendLog {
 }
 
 function save(s: SpendLog): void {
-  fs.writeFileSync(file(), JSON.stringify(s, null, 2), "utf-8");
+  atomicWriteFile(file(), JSON.stringify(s, null, 2), "utf-8");
 }
 
 export function todaySpendUsd(): number {

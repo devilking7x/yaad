@@ -43,7 +43,7 @@ export type StreamEvent =
   | { type: "thinking"; text: string }
   | { type: "tool"; name: string }
   | { type: "done"; reply: string; model: string; steps: number; usage: ChatTurn["usage"]; costUsd: number | null }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string; budgetExceeded?: boolean };
 
 /** Streaming chat over SSE (POST). Calls onEvent for token/tool/done/error. */
 export async function chatStream(
@@ -91,7 +91,8 @@ export async function chatStream(
           usage: data.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
           costUsd: data.costUsd ?? null,
         });
-      else if (type === "error") onEvent({ type: "error", error: data.error ?? "Stream error" });
+      else if (type === "error")
+        onEvent({ type: "error", error: data.error ?? "Stream error", budgetExceeded: data.budgetExceeded === true });
     }
   };
   for (;;) {
@@ -167,7 +168,7 @@ export const api = {
   },
   brain: {
     export: (): Promise<unknown> => req("/api/brain/export"),
-    import: (data: unknown): Promise<{ ok: boolean; restored: number }> =>
+    import: (data: unknown): Promise<{ ok: boolean; started: boolean; memories: number; reminders: number }> =>
       req("/api/brain/import", { method: "POST", body: JSON.stringify(data) }),
   },
   chat: (message: string, history: Array<{ role: string; content: string }>): Promise<ChatTurn> =>

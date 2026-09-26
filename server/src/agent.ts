@@ -192,10 +192,20 @@ function toolResult(id: string, name: string, payload: unknown): ChatMessage {
 }
 
 async function executeTool(name: string, args: Record<string, string>): Promise<unknown> {
+  // M7 fix: the model can send numbers/objects/anything — the type was a lie.
+  // Coerce every arg to a string so a hostile arg can't plant "[object Object]"
+  // as a durable memory. Non-object args become {}.
+  if (!args || typeof args !== "object") args = {};
+  for (const k of Object.keys(args)) {
+    const v = (args as Record<string, unknown>)[k];
+    (args as Record<string, unknown>)[k] = typeof v === "string" ? v : v == null ? "" : String(v);
+  }
   switch (name) {
     case "remember": {
+      const text = args.text.trim();
+      if (!text) return { error: "remember needs a non-empty text" };
       const mem = await memoryAdd(
-        args.text,
+        text,
         (args.tags ?? "").split(",").map((t) => t.trim()).filter(Boolean)
       );
       return { saved: true, id: mem.id };
@@ -375,7 +385,7 @@ export async function runAgentStream(
   userMessage: string,
   history: ChatMessage[],
   onEvent: (e: AgentEvent) => void,
-  opts: { image?: string; forceReasoning?: boolean } = {}
+  opts: { image?: string; forceReasoning?: boolean; isCancelled?: () => boolean } = {}
 ): Promise<void> {
   checkBudget();
   // M2 fix: reserve a conservative turn cost up front — 30 parallel /api/chat
@@ -413,17 +423,48 @@ export async function runAgentStream(
   let totalUsage: Usage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
   for (;;) {
+    // H3 fix: the judge navigated away mid-stream — stop burning tokens on a
+    // dead socket. Partial spend is metered, then we bail quietly.
+    if (opts.isCancelled?.()) {
+      recordSpend(estimateCost(totalUsage));
+      return;
+    }
+    // M1 fix: re-check the budget before EVERY model step, not just at turn
+    // start — 6 loop steps plus expensive tools could otherwise overshoot the
+    // daily cap between checks.
+    checkBudget();
     steps++;
     const needsReasoning = opts.forceReasoning || messages.length > 6 || userMessage.length > 500;
     model = needsReasoning ? config.reasoningModel : config.fastModel;
 
     let assembled: ChatMessage | undefined;
-    for await (const chunk of chatStream({ model, messages, tools: TOOLS })) {
-      if (chunk.delta) onEvent({ type: "token", token: chunk.delta });
-      if (chunk.thinking) onEvent({ type: "thinking", text: chunk.thinking });
-      if (chunk.message) assembled = chunk.message;
-      if (chunk.usage) totalUsage = addUsage(totalUsage, chunk.usage);
-      if (chunk.model) model = chunk.model;
+    // H3 full fix: abort the upstream fetch the moment the client disconnects,
+    // instead of waiting for the whole model stream to finish.
+    const ac = new AbortController();
+    let streamAborted = false;
+    try {
+      for await (const chunk of chatStream({ model, messages, tools: TOOLS, signal: ac.signal })) {
+        if (opts.isCancelled?.()) {
+          streamAborted = true;
+          ac.abort();
+          break;
+        }
+        if (chunk.delta) onEvent({ type: "token", token: chunk.delta });
+        if (chunk.thinking) onEvent({ type: "thinking", text: chunk.thinking });
+        if (chunk.message) assembled = chunk.message;
+        if (chunk.usage) totalUsage = addUsage(totalUsage, chunk.usage);
+        if (chunk.model) model = chunk.model;
+      }
+    } catch (e) {
+      if (ac.signal.aborted && opts.isCancelled?.()) {
+        recordSpend(estimateCost(totalUsage));
+        return;
+      }
+      throw e;
+    }
+    if (streamAborted) {
+      recordSpend(estimateCost(totalUsage));
+      return;
     }
     if (!assembled) throw new Error("Token Factory returned no message");
     messages.push(assembled);
@@ -451,6 +492,8 @@ export async function runAgentStream(
     calls.forEach((call, i) => messages.push(toolResult(call.id, call.function.name, outputs[i])));
   }
 
+  // L1 fix: meter BEFORE emitting done — if onEvent throws, spend was skipped.
+  recordSpend(estimateCost(totalUsage));
   onEvent({
     type: "done",
     reply: finalReply,
@@ -459,13 +502,14 @@ export async function runAgentStream(
     usage: totalUsage,
     costUsd: estimateCost(totalUsage),
   });
-    recordSpend(estimateCost(totalUsage));
   } finally {
     releaseSpend(TURN_RESERVE_USD);
   }
 
-  // Learn in the background — never blocks the delivered response.
-  await consolidateMemory(userMessage, finalReply);
+  // M3 fix: learn DETACHED. Awaiting consolidateMemory here held the SSE
+  // stream open (res.end() delayed by minutes when the extractor hung),
+  // despite the old comment claiming it "never blocks the delivered response".
+  consolidateMemory(userMessage, finalReply).catch(() => {});
 }
 
 export interface TurnResult {

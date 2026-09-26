@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -53,7 +54,7 @@ export function currentMems(): Memory[] {
 }
 
 function save(mems: Memory[]): void {
-  fs.writeFileSync(storePath(), JSON.stringify(mems, null, 2), "utf-8");
+  atomicWriteFile(storePath(), JSON.stringify(mems, null, 2), "utf-8");
 }
 
 function uid(): string {

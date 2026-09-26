@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -42,7 +43,7 @@ function read(id: string): ChatSession | undefined {
 }
 
 function write(s: ChatSession): void {
-  fs.writeFileSync(path.join(dir(), `${s.id}.json`), JSON.stringify(s, null, 2), "utf-8");
+  atomicWriteFile(path.join(dir(), `${s.id}.json`), JSON.stringify(s, null, 2), "utf-8");
 }
 
 export function createSession(title: string, messages: SessionMessage[]): ChatSession {

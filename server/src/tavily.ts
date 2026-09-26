@@ -1,5 +1,6 @@
 import { config } from "./config.js";
 import { chatComplete } from "./nebius.js";
+import { recordSpend, estimateChatCost } from "./spend.js";
 
 // Tavily web layer — our entry for the "Best Use of Tavily" prize.
 // Uses three Tavily APIs: /search (advanced depth), /extract (page reading),
@@ -62,7 +63,7 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
   // 1. Plan: decompose into sub-queries
   let subQueries: string[] = [query];
   try {
-    const { message } = await chatComplete({
+    const planRes = await chatComplete({
       model: config.fastModel,
       temperature: 0.3,
       maxTokens: 300,
@@ -76,6 +77,9 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
         { role: "user", content: query },
       ],
     });
+    // C1 fix: the planner call was unmetered — record it so the daily cap stays honest.
+    if (planRes.usage) recordSpend(estimateChatCost(planRes.usage));
+    const message = planRes.message;
     const parsed = JSON.parse(message.content ?? "[]") as unknown;
     if (Array.isArray(parsed) && parsed.length >= 2) {
       subQueries = parsed.filter((s): s is string => typeof s === "string" && s.trim().length > 5).slice(0, 4);
@@ -135,7 +139,7 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
     .join("\n\n");
 
   // 4. Synthesize
-  const { message } = await chatComplete({
+  const synthRes = await chatComplete({
     model: config.fastModel,
     temperature: 0.3,
     maxTokens: 1500,
@@ -155,5 +159,7 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
       },
     ],
   });
-  return { summary: (message.content as string) ?? "", sources: topUrls.slice(0, 6) };
+  // C1 fix: the synthesizer call was unmetered too (big prompt — ~10k+ tokens).
+  if (synthRes.usage) recordSpend(estimateChatCost(synthRes.usage));
+  return { summary: (synthRes.message.content as string) ?? "", sources: topUrls.slice(0, 6) };
 }

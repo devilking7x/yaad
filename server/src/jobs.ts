@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 // Background jobs (Codex-style): long work runs on its own while the user
 // does other things. When it finishes, the proactive engine nudges the user.
 // Currently: deep_research in the background. Jobs persist in jobs.json.
@@ -44,7 +45,7 @@ function loadJobs(): Job[] {
 function saveJobs(jobs: Job[]): void {
   try {
     fs.mkdirSync(config.memoryDir, { recursive: true });
-    fs.writeFileSync(jobsFile(), JSON.stringify(jobs.slice(0, MAX_JOBS), null, 2), "utf-8");
+    atomicWriteFile(jobsFile(), JSON.stringify(jobs.slice(0, MAX_JOBS), null, 2), "utf-8");
   } catch {
     /* never break */
   }

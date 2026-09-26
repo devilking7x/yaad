@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -27,7 +28,7 @@ function load(): Reminder[] {
 }
 
 function save(all: Reminder[]): void {
-  fs.writeFileSync(file(), JSON.stringify(all, null, 2), "utf-8");
+  atomicWriteFile(file(), JSON.stringify(all, null, 2), "utf-8");
 }
 
 const uid = (): string =>

@@ -1,3 +1,4 @@
+import { atomicWriteFile } from "./fsutil.js";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "./config.js";
@@ -105,7 +106,7 @@ export function saveDraft(name: string, md: string): void {
   if (!clean) throw new Error("Invalid draft name");
   const dir = path.resolve(config.skillsDir);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `_draft-${clean}.md`), md, "utf-8");
+  atomicWriteFile(path.join(dir, `_draft-${clean}.md`), md, "utf-8");
 }
 
 /** Approve a draft: it becomes a real, runnable skill. */
@@ -116,7 +117,7 @@ export function approveDraft(name: string): Skill {
   if (!found) throw new Error("Draft nahi mila");
   const raw = fs.readFileSync(path.join(dir, found.file), "utf-8");
   const active = raw.replace(/^draft:\s*true\n/m, "");
-  fs.writeFileSync(path.join(dir, `${clean}.md`), active, "utf-8");
+  atomicWriteFile(path.join(dir, `${clean}.md`), active, "utf-8");
   fs.unlinkSync(path.join(dir, found.file));
   const skill = parseSkill(`${clean}.md`, active);
   if (!skill) throw new Error("Draft corrupt nikla");
@@ -164,6 +165,6 @@ export async function installSkill(name: string, url: string): Promise<Skill> {
   const stamped = md.replace(/^name:\s*.*$/m, `name: ${clean}`);
   const dir = path.resolve(config.skillsDir);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, `${clean}.md`), stamped, "utf-8");
+  atomicWriteFile(path.join(dir, `${clean}.md`), stamped, "utf-8");
   return { ...skill, name: clean };
 }

@@ -48,27 +48,40 @@ function headers(): Record<string, string> {
   };
 }
 
-async function postJson(path: string, body: unknown, attempt = 0): Promise<Response> {
+async function postJson(path: string, body: unknown, attempt = 0, externalSignal?: AbortSignal): Promise<Response> {
+  // Client already gone (navigated away / closed tab)? Don't even start — and
+  // never retry a cancelled request.
+  if (externalSignal?.aborted) throw new Error("cancelled");
+  // Manual timeout controller so we can ALSO honour an external abort signal
+  // (plain AbortSignal.timeout() can't be combined with one on older Node).
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(new Error("Token Factory timeout (120s)")), 120_000);
+  const onExternalAbort = () => ac.abort(externalSignal!.reason ?? new Error("cancelled"));
+  externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
   let res: Response;
   try {
     res = await fetch(`${config.nebiusBaseUrl}${path}`, {
       method: "POST",
       headers: headers(),
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
+      signal: ac.signal,
     });
   } catch (e) {
+    if (externalSignal?.aborted) throw new Error("cancelled");
     // Network error / timeout — retry with backoff like a 5xx.
     if (attempt < MAX_RETRIES - 1) {
       await sleep(1000 * 2 ** attempt);
-      return postJson(path, body, attempt + 1);
+      return postJson(path, body, attempt + 1, externalSignal);
     }
     throw new Error(`Token Factory unreachable: ${(e as Error).message}`.slice(0, 300));
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onExternalAbort);
   }
   if (res.ok) return res;
   if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES - 1) {
     await sleep(1000 * 2 ** attempt);
-    return postJson(path, body, attempt + 1);
+    return postJson(path, body, attempt + 1, externalSignal);
   }
   throw new Error(`Token Factory ${res.status}: ${(await res.text()).slice(0, 500)}`);
 }
@@ -79,6 +92,7 @@ export async function chatComplete(opts: {
   tools?: ChatTool[];
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }): Promise<ChatResult> {
   const res = await postJson("/chat/completions", {
     model: opts.model,
@@ -86,7 +100,7 @@ export async function chatComplete(opts: {
     ...(opts.tools ? { tools: opts.tools } : {}),
     temperature: opts.temperature ?? 0.7,
     ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
-  });
+  }, 0, opts.signal);
   const data = (await res.json()) as {
     choices: Array<{ message: ChatMessage }>;
     model: string;
@@ -123,6 +137,7 @@ export async function* chatStream(opts: {
   tools?: ChatTool[];
   temperature?: number;
   maxTokens?: number;
+  signal?: AbortSignal;
 }): AsyncGenerator<StreamChunk> {
   const res = await postJson("/chat/completions", {
     model: opts.model,
@@ -132,7 +147,7 @@ export async function* chatStream(opts: {
     ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
     stream: true,
     stream_options: { include_usage: true },
-  });
+  }, 0, opts.signal);
 
   const reader = res.body!.getReader();
   const decoder = new TextDecoder();
