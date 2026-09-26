@@ -153,6 +153,11 @@ export interface Job {
   seen: boolean;
 }
 
+export interface GraphData {
+  nodes: { id: string; label: string; count: number }[];
+  edges: { a: string; b: string; weight: number }[];
+}
+
 export const api = {
   health: () => req("/api/health"),
   settings: {
@@ -182,6 +187,7 @@ export const api = {
     seen: (ids: string[]) => req("/api/nudges/seen", { method: "POST", body: JSON.stringify({ ids }) }),
     briefingOffered: () => req("/api/nudges/briefing-offered", { method: "POST" }),
   },
+  graph: (): Promise<GraphData> => req("/api/graph"),
   jobs: {
     list: (): Promise<Job[]> => req("/api/jobs"),
     seen: (id: string) => req(`/api/jobs/${encodeURIComponent(id)}/seen`, { method: "POST" }),

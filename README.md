@@ -25,7 +25,7 @@ stated outright, and wakes up with insights. *That* is a personal AI, not a chat
 ## Demo
 
 - **Live demo:** https://devilking7x.github.io/yaad/ *(points at your Yaad server)*
-- **Demo video (≤3 min):** *coming soon*
+- **Demo video (≤3 min):** shot-by-shot script in [docs/VIDEO_SCRIPT.md](docs/VIDEO_SCRIPT.md)
 
 ---
 
@@ -104,6 +104,23 @@ a full SKILL.md pack for it — and drops it in a **draft inbox**. Nothing auto-
 you review and hit **Approve ✓** (or Discard ✕) in the Skills tab. A `✨ Naya skill taiyaar`
 nudge tells you the moment one lands. Drafts are never runnable until approved — the
 approval gate is the whole point.
+
+### 🕸 Knowledge graph — "tumhara dimaag"
+
+The Memory tab has a **🕸 Graph** toggle: your entities become golden nodes sized by
+how often they appear, co-occurrences become edges weighted by strength — a live,
+force-directed picture of what's in your head. **Click any node** and the memory list
+filters to just that entity. Served by `GET /api/graph`, computed purely from the
+current store, no model calls needed.
+
+### 📊 Memory eval harness — measured, not vibes
+
+`server/eval/memory.eval.ts` seeds a controlled brain (contradiction pairs, entity
+clusters, distractors) and scores recall@1 / recall@3 / MRR — **offline, no API keys
+needed**, so it runs in CI. Latest run: **recall@1 = 1.00, MRR = 1.000 on 6 cases**,
+including the Delhi-vs-coffee ranking regression. Results land in
+`server/eval/RESULTS.md`. Run it yourself: `MEMORY_DIR=$(mktemp -d) pnpm eval`
+(with embeddings configured, the same harness exercises the semantic + RRF path).
 
 ### 🔌 MCP server — Yaad's brain, open to other agents
 
@@ -213,7 +230,7 @@ yaad/
 
 - [ ] Per-user auth + isolated memory stores (today: shared-secret demo mode)
 - [ ] Nebius Serverless one-click deploy config
-- [ ] Memory evaluation harness (recall@k on a golden set)
+- [x] Memory evaluation harness (recall@k on a golden set) — `pnpm eval`, recall@1 = 1.00
 - [ ] Voice-first mode (Nemotron Omni audio in/out)
 
 ## License

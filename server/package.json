@@ -21,7 +21,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
-    "mcp": "node dist/mcp.js"
+    "mcp": "node dist/mcp.js",
+    "eval": "tsx eval/memory.eval.ts"
   },
   "type": "module",
   "version": "0.1.0"

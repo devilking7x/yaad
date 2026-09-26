@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { api, chatStream, type ChatSession, type Job, type Memory, type Nudge, type Reminder, type Skill } from "./api";
+import { api, chatStream, type ChatSession, type GraphData, type Job, type Memory, type Nudge, type Reminder, type Skill } from "./api";
+import Graph from "./Graph";
 import { renderRich } from "./md";
 
 interface Msg {
@@ -59,6 +60,9 @@ export default function App() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [drafts, setDrafts] = useState<Skill[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [graphView, setGraphView] = useState(false);
+  const [graph, setGraph] = useState<GraphData>({ nodes: [], edges: [] });
+  const [graphEntity, setGraphEntity] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tab, setTab] = useState<"memory" | "skills" | "reminders" | "jobs">("memory");
@@ -90,6 +94,7 @@ export default function App() {
   useEffect(() => {
     api.health().then(() => setServerOk(true)).catch(() => setServerOk(false));
     api.memories().then(setMemories).catch(() => {});
+    api.graph().then(setGraph).catch(() => {});
     api.skills().then(setSkills).catch(() => {});
     api.skillDrafts.list().then(setDrafts).catch(() => {});
     api.jobs.list().then(setJobs).catch(() => {});
@@ -201,7 +206,10 @@ export default function App() {
     api.skillDrafts.list().then(setDrafts).catch(() => {});
   }
 
-  const refreshMemories = () => api.memories().then(setMemories).catch(() => {});
+  const refreshMemories = () => {
+    api.memories().then(setMemories).catch(() => {});
+    api.graph().then(setGraph).catch(() => {});
+  };
 
   function toggleVoice() {
     const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -369,8 +377,10 @@ export default function App() {
     e.target.value = "";
   }
 
-  const filteredMemories = memories.filter((m) =>
-    `${m.text} ${m.tags.join(" ")}`.toLowerCase().includes(memoryQuery.toLowerCase())
+  const filteredMemories = memories.filter(
+    (m) =>
+      (!graphEntity || m.entities.some((e) => e.toLowerCase() === graphEntity)) &&
+      `${m.text} ${m.tags.join(" ")}`.toLowerCase().includes(memoryQuery.toLowerCase())
   );
 
   function exportChat() {
@@ -850,6 +860,27 @@ export default function App() {
           <div className="flex-1 overflow-y-auto chat-scroll p-3 space-y-2">
             {tab === "memory" && (
               <>
+                <div className="flex gap-1 mb-1">
+                  <button
+                    onClick={() => setGraphView(false)}
+                    className={`flex-1 text-xs py-1 rounded-lg ${!graphView ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
+                  >📋 List</button>
+                  <button
+                    onClick={() => setGraphView(true)}
+                    className={`flex-1 text-xs py-1 rounded-lg ${graphView ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
+                  >🕸 Graph</button>
+                </div>
+                {graphView ? (
+                  <>
+                    <Graph nodes={graph.nodes} edges={graph.edges} selected={graphEntity} onSelect={setGraphEntity} />
+                    {graphEntity && (
+                      <button onClick={() => setGraphEntity(null)} className="text-xs text-yellow-500/80 mt-1">
+                        ✕ filter hatao: {graph.nodes.find((n) => n.id === graphEntity)?.label}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                <>
                 <input
                   value={memoryQuery}
                   onChange={(e) => setMemoryQuery(e.target.value)}
@@ -880,6 +911,8 @@ export default function App() {
                       </div>
                     </div>
                   ))
+                )}
+                </>
                 )}
               </>
             )}

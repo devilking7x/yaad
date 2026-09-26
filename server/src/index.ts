@@ -7,6 +7,7 @@ import { listModels } from "./nebius.js";
 import { addReminder, completeReminder, deleteReminder, listReminders } from "./reminders.js";
 import { computeNudges, markBriefingOffered, markNudgesSeen, maybeAutoDream } from "./proactive.js";
 import { listJobs, markJobSeen } from "./jobs.js";
+import { buildGraph } from "./graph.js";
 import {
   appendSessionMessages,
   createSession,
@@ -295,6 +296,10 @@ app.get("/api/jobs", (_req, res) => res.json(listJobs()));
 app.post("/api/jobs/:id/seen", (req, res) => {
   res.json({ seen: markJobSeen(req.params.id) });
 });
+
+// --- Knowledge graph -------------------------------------------------------
+
+app.get("/api/graph", (_req, res) => res.json(buildGraph()));
 
 // --- Sessions ----------------------------------------------------------------
 
