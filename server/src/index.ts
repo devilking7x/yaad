@@ -5,6 +5,7 @@ import { assertConfigured, config } from "./config.js";
 import { memoryAdd, memoryDelete, memoryExport, memoryGet, memoryList } from "./memory.js";
 import { listModels } from "./nebius.js";
 import { addReminder, completeReminder, deleteReminder, listReminders } from "./reminders.js";
+import { computeNudges, markBriefingOffered, markNudgesSeen, maybeAutoDream } from "./proactive.js";
 import {
   appendSessionMessages,
   createSession,
@@ -246,6 +247,24 @@ app.post("/api/reminders/:id/done", (req, res) => {
 
 app.delete("/api/reminders/:id", (req, res) => {
   res.json({ ok: deleteReminder(req.params.id) });
+});
+
+// --- Proactive nudges: Yaad wakes up on its own --------------------------------
+
+app.get("/api/nudges", (_req, res) => {
+  maybeAutoDream(); // opportunistic: consolidate in background if due
+  res.json(computeNudges());
+});
+
+app.post("/api/nudges/seen", (req, res) => {
+  const { ids } = req.body as { ids?: unknown };
+  markNudgesSeen(Array.isArray(ids) ? ids : []);
+  res.json({ ok: true });
+});
+
+app.post("/api/nudges/briefing-offered", (_req, res) => {
+  markBriefingOffered();
+  res.json({ ok: true });
 });
 
 // --- Sessions ----------------------------------------------------------------

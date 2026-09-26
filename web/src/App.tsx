@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, chatStream, type ChatSession, type Memory, type Reminder, type Skill } from "./api";
+import { api, chatStream, type ChatSession, type Memory, type Nudge, type Reminder, type Skill } from "./api";
 import { renderRich } from "./md";
 
 interface Msg {
@@ -60,6 +60,8 @@ export default function App() {
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [tab, setTab] = useState<"memory" | "skills" | "reminders">("memory");
+  const [nudges, setNudges] = useState<Nudge[]>([]);
+  const seenNudgeRef = useRef<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [skillName, setSkillName] = useState("");
@@ -127,9 +129,53 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
+  // Proactive engine: Yaad wakes up on its own. Poll nudges every 60s,
+  // toast the new ones, and fire a browser notification like reminders do.
+  useEffect(() => {
+    const tick = async () => {
+      try {
+        const all = await api.nudges.list();
+        const fresh = all.filter((n) => !seenNudgeRef.current.has(n.id));
+        if (fresh.length) {
+          for (const n of fresh) {
+            seenNudgeRef.current.add(n.id);
+            if ("Notification" in window && Notification.permission === "granted") {
+              try {
+                new Notification("Yaad 🔔", { body: n.text });
+              } catch {}
+            }
+          }
+          setNudges((p) => [...fresh, ...p].slice(0, 5));
+        }
+      } catch {}
+    };
+    tick();
+    const t = setInterval(tick, 60000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy, status]);
+
+  function dismissNudge(id: string) {
+    setNudges((p) => p.filter((n) => n.id !== id));
+    api.nudges.seen([id]).catch(() => {});
+  }
+
+  async function nudgeAction(n: Nudge) {
+    dismissNudge(n.id);
+    if (n.action === "done-reminder" && n.refId) {
+      await api.reminders.done(n.refId).catch(() => {});
+      setReminders((p) => p.filter((r) => r.id !== n.refId));
+    } else if (n.action === "send-briefing") {
+      await api.nudges.briefingOffered().catch(() => {});
+      send("Mera briefing do.");
+    } else if (n.action === "open-memory") {
+      setTab("memory");
+      setDrawerOpen(true);
+    }
+  }
 
   const refreshMemories = () => api.memories().then(setMemories).catch(() => {});
 
@@ -411,6 +457,30 @@ export default function App() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: "#0a0a0f" }}>
+      {/* Proactive nudge toasts */}
+      {nudges.length > 0 && (
+        <div className="fixed top-16 right-3 z-50 flex flex-col gap-2 w-72">
+          {nudges.map((n) => (
+            <div key={n.id} className="rounded-xl border gold-border bg-[#14141c]/95 p-3 shadow-xl backdrop-blur">
+              <div className="text-sm text-neutral-200">{n.text}</div>
+              <div className="flex gap-2 mt-2">
+                <button
+                  onClick={() => nudgeAction(n)}
+                  className="text-xs px-2 py-1 rounded-lg bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30"
+                >
+                  {n.action === "done-reminder" ? "✅ Ho gaya" : n.action === "send-briefing" ? "☀️ Banao" : "🧠 Dekho"}
+                </button>
+                <button
+                  onClick={() => dismissNudge(n.id)}
+                  className="text-xs px-2 py-1 rounded-lg text-neutral-400 hover:text-neutral-200"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {/* Header */}
       <header className="border-b gold-border px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">

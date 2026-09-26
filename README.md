@@ -65,7 +65,21 @@ a single cited synthesis. Built for the **Best Use of Tavily** prize.
 
 **Tool loop:** `remember` · `recall` · `web_search` · `deep_research` · `read_page` ·
 `run_skill` · `install_skill` · `set_reminder` · `see_image` · `dream` — then a final
-answer, **streamed token-by-token** over SSE with live tool-status hints.
+answer, **streamed token-by-token** over SSE with live tool-status hints. A **proactive
+engine** (`proactive.ts`) wakes Yaad up on its own: due reminders, the morning briefing
+window, and fresh dream insights surface as nudges without you asking.
+
+### 🔔 Proactive engine — Yaad waits for no one
+
+Yaad doesn't just answer — it **wakes up on its own**. A server-side engine evaluates
+every minute whether there's something worth telling you *right now*:
+
+- ⏰ **Due reminders** — surface as toasts + browser notifications until acknowledged
+- ☀️ **Morning briefing** — once a day before noon, if your brain has something to brief on
+- 💤 **New dream insights** — the moment auto-dreaming synthesizes one, you're told
+
+No model calls, no spam (seen-state is idempotent), offline-safe. And **auto-dreaming**:
+when enough new memories pile up, Yaad consolidates them in the background by itself.
 
 ### 🔌 MCP server — Yaad's brain, open to other agents
 

@@ -131,6 +131,15 @@ export interface Settings {
   todaySpendUsd: number;
 }
 
+export interface Nudge {
+  id: string;
+  kind: "reminder" | "briefing" | "insight";
+  text: string;
+  createdAt: string;
+  action: string;
+  refId?: string;
+}
+
 export const api = {
   health: () => req("/api/health"),
   settings: {
@@ -150,6 +159,11 @@ export const api = {
   skills: (): Promise<Skill[]> => req("/api/skills"),
   installSkill: (name: string, url: string) =>
     req("/api/skills/install", { method: "POST", body: JSON.stringify({ name, url }) }),
+  nudges: {
+    list: (): Promise<Nudge[]> => req("/api/nudges"),
+    seen: (ids: string[]) => req("/api/nudges/seen", { method: "POST", body: JSON.stringify({ ids }) }),
+    briefingOffered: () => req("/api/nudges/briefing-offered", { method: "POST" }),
+  },
   reminders: {
     list: (): Promise<Reminder[]> => req("/api/reminders"),
     done: (id: string) => req(`/api/reminders/${id}/done`, { method: "POST" }),
