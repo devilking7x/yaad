@@ -64,9 +64,10 @@ zero GPU setup — pure Token Factory.
 a single cited synthesis. Built for the **Best Use of Tavily** prize.
 
 **Tool loop:** `remember` · `recall` · `web_search` · `deep_research` · `read_page` ·
-`run_skill` · `install_skill` · `set_reminder` · `see_image` · `dream` — then a final
-answer, **streamed token-by-token** over SSE with live tool-status hints. A **proactive
-engine** (`proactive.ts`) wakes Yaad up on its own: due reminders, the morning briefing
+`run_skill` · `install_skill` · `set_reminder` · `see_image` · `dream` · **`run_code`** — then a final
+answer, **streamed token-by-token** over SSE with live tool-status hints. Independent tool calls in
+one turn execute **in parallel** (Grok-style), not one-by-one — multi-tool answers land faster.
+A **proactive engine** (`proactive.ts`) wakes Yaad up on its own: due reminders, the morning briefing
 window, and fresh dream insights surface as nudges without you asking.
 
 ### 🔔 Proactive engine — Yaad waits for no one
@@ -80,6 +81,14 @@ every minute whether there's something worth telling you *right now*:
 
 No model calls, no spam (seen-state is idempotent), offline-safe. And **auto-dreaming**:
 when enough new memories pile up, Yaad consolidates them in the background by itself.
+
+### 💻 Code execution — Yaad computes, never guesses
+
+Like Codex and Grok, Yaad has a **`run_code` tool**: sandboxed JavaScript (no network,
+no filesystem, 5s timeout) for math, date calculations, sorting/filtering, and verifying
+logic. Ask "mere 5 stocks ka average return kya hai?" and it *runs* the numbers instead of
+estimating them. The sandbox is a guardrail, not a bulletproof boundary — documented honestly
+in `server/src/sandbox.ts`.
 
 ### 🌱 Self-improving: Yaad writes its own skills
 
