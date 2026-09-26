@@ -9,7 +9,7 @@ services:
   - type: web
     name: yaad-api
     runtime: node
-    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter yaad-server build
+    buildCommand: pnpm install --frozen-lockfile --prod=false && pnpm --filter yaad-server build
     startCommand: pnpm --filter yaad-server start
     healthCheckPath: /api/health
     envVars:
