@@ -51,25 +51,74 @@ export async function readPage(url: string, query = ""): Promise<string> {
 }
 
 /**
- * Deep research pipeline: advanced search -> extract top pages ->
- * synthesize a cited answer with the fast model. For complex,
- * multi-source questions where one search isn't enough.
+ * Deep research pipeline v2 — orchestrator-worker fan-out:
+ * 1. Planner (fast model) breaks the question into 2-4 focused sub-queries.
+ * 2. Each sub-query runs an advanced Tavily search IN PARALLEL.
+ * 3. Top pages per thread are extracted in parallel.
+ * 4. A synthesizer merges everything into one cited answer.
+ * This is the canonical 2026 agentic pattern (Anthropic orchestrator-worker).
  */
 export async function deepResearch(query: string): Promise<{ summary: string; sources: string[] }> {
-  const search = await tavilyRaw("/search", {
-    query,
-    search_depth: "advanced",
-    max_results: 8,
-    chunks_per_source: 3,
-    include_answer: "advanced",
-  });
-  const results: Array<{ title: string; url: string; content: string }> = search.results ?? [];
-  const topUrls = results.slice(0, 3).map((r) => r.url);
+  // 1. Plan: decompose into sub-queries
+  let subQueries: string[] = [query];
+  try {
+    const { message } = await chatComplete({
+      model: config.fastModel,
+      temperature: 0.3,
+      maxTokens: 300,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Break a research question into 2-4 focused sub-questions that together cover it fully. " +
+            "Reply with ONLY a JSON array of strings. No other text.",
+        },
+        { role: "user", content: query },
+      ],
+    });
+    const parsed = JSON.parse(message.content ?? "[]") as unknown;
+    if (Array.isArray(parsed) && parsed.length >= 2) {
+      subQueries = parsed.filter((s): s is string => typeof s === "string" && s.trim().length > 5).slice(0, 4);
+      if (!subQueries.length) subQueries = [query];
+    }
+  } catch {
+    /* single-thread fallback */
+  }
+
+  // 2. Fan out: parallel advanced searches (context-isolated workers)
+  const searches = await Promise.all(
+    subQueries.map(async (sq) => {
+      try {
+        const data = await tavilyRaw("/search", {
+          query: sq,
+          search_depth: "advanced",
+          max_results: 5,
+          chunks_per_source: 3,
+          include_answer: false,
+        });
+        return { sq, results: (data.results ?? []) as Array<{ title: string; url: string; content: string }> };
+      } catch {
+        return { sq, results: [] as Array<{ title: string; url: string; content: string }> };
+      }
+    })
+  );
+
+  // 3. Collect unique top URLs and extract them in parallel
+  const seen = new Set<string>();
+  const topUrls: string[] = [];
+  for (const s of searches) {
+    for (const r of s.results.slice(0, 2)) {
+      if (r.url && !seen.has(r.url)) {
+        seen.add(r.url);
+        topUrls.push(r.url);
+      }
+    }
+  }
 
   let extracts = "";
   try {
     const ex = await tavilyRaw("/extract", {
-      urls: topUrls,
+      urls: topUrls.slice(0, 6),
       query,
       extract_depth: "advanced",
       format: "markdown",
@@ -81,10 +130,11 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
     /* search snippets alone are still useful */
   }
 
-  const snippets = results
-    .map((r) => `- ${r.title} (${r.url}): ${(r.content ?? "").slice(0, 500)}`)
-    .join("\n");
+  const snippets = searches
+    .map((s) => `SUB-QUESTION: ${s.sq}\n` + s.results.map((r) => `- ${r.title} (${r.url}): ${(r.content ?? "").slice(0, 400)}`).join("\n"))
+    .join("\n\n");
 
+  // 4. Synthesize
   const { message } = await chatComplete({
     model: config.fastModel,
     temperature: 0.3,
@@ -100,10 +150,10 @@ export async function deepResearch(query: string): Promise<{ summary: string; so
       {
         role: "user",
         content:
-          `RESEARCH QUESTION: ${query}\n\nSEARCH RESULTS:\n${snippets}\n\n` +
+          `RESEARCH QUESTION: ${query}\n\nTHREAD RESULTS:\n${snippets}\n\n` +
           (extracts ? `EXTRACTED PAGES:\n${extracts}` : "No full-page extracts available."),
       },
     ],
   });
-  return { summary: (message.content as string) ?? "", sources: topUrls };
+  return { summary: (message.content as string) ?? "", sources: topUrls.slice(0, 6) };
 }

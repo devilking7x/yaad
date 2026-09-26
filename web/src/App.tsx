@@ -25,10 +25,12 @@ const TOOL_LABELS: Record<string, string> = {
   install_skill: "skill install kar raha hun…",
   set_reminder: "reminder laga raha hun…",
   see_image: "tasveer dekh raha hun…",
+  dream: "sapne dekh raha hun…",
 };
 
 const QUICK_ACTIONS = [
   "Mere baare me kya yaad hai tumhe?",
+  "💤 Sapne dekho aur insights batao",
   "Good morning! Mera briefing do.",
   "Aaj ki top tech news batao.",
   "Kal subah 8 baje gym yaad dilana.",
@@ -768,9 +770,15 @@ export default function App() {
                 ) : (
                   filteredMemories.map((m) => (
                     <div key={m.id} className="bg-neutral-900 border gold-border rounded-xl p-2.5 text-xs">
-                      <p className="text-neutral-200">{m.text}</p>
+                      <p className="text-neutral-200">
+                        {m.tags.includes("insight") && <span className="mr-1">✨</span>}
+                        {m.text}
+                      </p>
                       <div className="flex items-center justify-between mt-1.5">
-                        <span className="text-neutral-600">{m.tags.join(", ")}</span>
+                        <span className="text-neutral-600">
+                          {m.tags.join(", ")}
+                          {m.validTo && <span className="ml-1 text-neutral-500">📜 purani</span>}
+                        </span>
                         <button onClick={() => forget(m.id)} className="text-neutral-500 hover:text-red-400">
                           bhula do
                         </button>

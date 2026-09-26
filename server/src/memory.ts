@@ -8,15 +8,22 @@ import { embed } from "./nebius.js";
 // Interface mirrors the agent-memory-notes MCP server tools:
 // memory_add / list / search / get / update / delete / export
 //
-// Search is semantic when embeddings are available (Nebius /v1/embeddings),
-// with keyword fallback — so it works with or without an API key.
+// 2026-grade retrieval: multi-signal hybrid (dense embeddings + keyword +
+// entity match) fused with Reciprocal Rank Fusion (k=60) — the current
+// consensus best practice. Bi-temporal versioning (validFrom/validTo):
+// outdated facts are *superseded*, never silently overwritten, so "main ab
+// Delhi me hun" retires the old "Mumbai" memory instead of contradicting it.
 
 export interface Memory {
   id: string;
   text: string;
   tags: string[];
+  entities: string[]; // extracted entity names, lowercase ("priya", "mumbai")
   createdAt: string;
   updatedAt: string;
+  validFrom: string; // bi-temporal: when this fact became true
+  validTo: string | null; // null = currently valid; set when superseded
+  supersededBy?: string; // id of the memory that replaced this one
   embedding?: number[];
 }
 
@@ -27,10 +34,22 @@ function storePath(): string {
 
 function load(): Memory[] {
   try {
-    return JSON.parse(fs.readFileSync(storePath(), "utf-8")) as Memory[];
+    const arr = JSON.parse(fs.readFileSync(storePath(), "utf-8")) as Memory[];
+    // Normalize pre-temporal entries.
+    for (const m of arr) {
+      if (!m.validFrom) m.validFrom = m.createdAt;
+      if (m.validTo === undefined) m.validTo = null;
+      if (!m.entities) m.entities = [];
+    }
+    return arr;
   } catch {
     return [];
   }
+}
+
+/** Only currently-valid memories (not superseded). */
+export function currentMems(): Memory[] {
+  return load().filter((m) => m.validTo === null);
 }
 
 function save(mems: Memory[]): void {
@@ -56,7 +75,7 @@ function cosine(a: number[], b: number[]): number {
 
 const withLock = createMutex();
 
-export async function memoryAdd(text: string, tags: string[] = []): Promise<Memory> {
+export async function memoryAdd(text: string, tags: string[] = [], entities: string[] = []): Promise<Memory> {
   return withLock(async () => {
     let embedding: number[] | undefined;
     try {
@@ -68,18 +87,37 @@ export async function memoryAdd(text: string, tags: string[] = []): Promise<Memo
       /* store without embedding; keyword search still works */
     }
     const mems = load();
+    const now = new Date().toISOString();
     const mem: Memory = {
       id: uid(),
       text,
       tags,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      entities: entities.map((e) => e.toLowerCase().trim()).filter(Boolean).slice(0, 10),
+      createdAt: now,
+      updatedAt: now,
+      validFrom: now,
+      validTo: null,
       ...(embedding ? { embedding } : {}),
     };
     mems.push(mem);
     save(mems);
     return mem;
   });
+}
+
+/**
+ * Retire an outdated memory without deleting it: it stays in history with
+ * validTo set, so "what did I believe in June?" remains answerable.
+ */
+export function memorySupersede(oldId: string, newId: string): boolean {
+  const mems = load();
+  const old = mems.find((m) => m.id === oldId);
+  if (!old || old.validTo !== null) return false;
+  old.validTo = new Date().toISOString();
+  old.supersededBy = newId;
+  old.updatedAt = old.validTo;
+  save(mems);
+  return true;
 }
 
 export function memoryList(): Memory[] {
@@ -119,52 +157,69 @@ export function memoryDelete(id: string): boolean {
   return true;
 }
 
-function keywordSearch(mems: Memory[], query: string, limit: number, exclude: Set<string>): Memory[] {
+/** Reciprocal Rank Fusion — the standard way to fuse retrieval signals. */
+function rrf(rank: number, k = 60): number {
+  return 1 / (k + rank);
+}
+
+function keywordRanked(pool: Memory[], query: string): Memory[] {
   const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  return mems
-    .filter((m) => !exclude.has(m.id))
+  return pool
     .map((m) => {
-      const hay = `${m.text} ${m.tags.join(" ")}`.toLowerCase();
+      const hay = `${m.text} ${m.tags.join(" ")} ${m.entities.join(" ")}`.toLowerCase();
       let score = 0;
       for (const t of terms) if (hay.includes(t)) score += t.length > 4 ? 2 : 1;
       return { m, score };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
     .map((s) => s.m);
 }
 
 /**
- * Hybrid recall: semantic (cosine over embeddings) first, then keyword
- * matches to fill up. Works fully offline when no embedding model is set.
+ * Hybrid recall: three signals (semantic cosine, keyword, entity match)
+ * fused with Reciprocal Rank Fusion. Defaults to currently-valid memories;
+ * pass includeHistorical to also search superseded ones.
  */
-export async function memorySearch(query: string, limit = 5): Promise<Memory[]> {
-  const mems = load();
-  const picked: Memory[] = [];
-  const seen = new Set<string>();
+export async function memorySearch(
+  query: string,
+  limit = 5,
+  opts: { includeHistorical?: boolean } = {}
+): Promise<Memory[]> {
+  const pool = opts.includeHistorical ? load() : currentMems();
+  if (!pool.length || !query.trim()) return [];
 
+  // Signal 1: semantic (ranked by cosine — RRF handles the weighting)
+  let semRanked: Memory[] = [];
   try {
-    if (config.nebiusApiKey && config.embeddingModel && query.trim()) {
+    if (config.nebiusApiKey && config.embeddingModel) {
       const [q] = await embed([query]);
-      const ranked = mems
+      semRanked = pool
         .filter((m) => m.embedding && m.embedding.length)
         .map((m) => ({ m, s: cosine(q, m.embedding!) }))
-        .filter((x) => x.s > 0.2)
-        .sort((a, b) => b.s - a.s);
-      for (const r of ranked.slice(0, limit)) {
-        picked.push(r.m);
-        seen.add(r.m.id);
-      }
+        .sort((a, b) => b.s - a.s)
+        .map((x) => x.m);
     }
   } catch {
     /* fall through to keyword */
   }
 
-  if (picked.length < limit) {
-    picked.push(...keywordSearch(mems, query, limit - picked.length, seen));
+  // Signal 2: keyword
+  const kwRanked = keywordRanked(pool, query);
+
+  // Signal 3: entity match — memories about entities named in the query
+  const ql = query.toLowerCase();
+  const entRanked = pool.filter((m) => m.entities.some((e) => e && ql.includes(e)));
+
+  const scores = new Map<string, number>();
+  for (const ranked of [semRanked, kwRanked, entRanked]) {
+    ranked.forEach((m, i) => scores.set(m.id, (scores.get(m.id) ?? 0) + rrf(i)));
   }
-  return picked.slice(0, limit);
+  const byId = new Map(pool.map((m) => [m.id, m]));
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([id]) => byId.get(id)!);
 }
 
 export function memoryExport(): Memory[] {

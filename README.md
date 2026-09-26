@@ -94,19 +94,43 @@ yaad/
 │   ├── index.ts     Express API (/api/chat, /api/memories, /api/skills, /api/models)
 │   ├── agent.ts     Orchestrator: recall → skills → Nemotron → tool loop
 │   ├── nebius.ts    OpenAI-compatible Token Factory client (retries on 429/5xx)
-│   ├── memory.ts    Persistent memory store (~/.yaad/memories.json)
+│   ├── memory.ts    Bi-temporal memory: versioned facts, RRF hybrid recall
+│   ├── dream.ts     "Dreaming": background insight consolidation
+│   ├── mcp.ts       MCP server — Yaad's brain for other agents (pnpm mcp)
 │   ├── skills.ts    Skill-pack loader (skills/*.md)
-│   └── tavily.ts    Tavily web search client
+│   └── tavily.ts    Tavily client: parallel sub-agent deep research
 ├── web/src/         React + Tailwind chat UI (dark + gold)
 ├── skills/          Reusable skill packs (markdown)
 └── docs/            Architecture + hackathon submission notes
 ```
 
+## Round 7 — research-grade memory & agents
+
+Built from a 2026 state-of-the-art research pass (temporal knowledge graphs,
+hybrid retrieval, agentic patterns, hackathon-winner analysis):
+
+- **Bi-temporal memory** — facts carry `validFrom`/`validTo`. When you correct
+  Yaad ("main ab Delhi me hun"), the old Mumbai memory is *superseded*, not
+  deleted — history stays queryable, contradictions disappear.
+- **RRF hybrid recall** — dense embeddings + keyword + entity-match signals
+  fused with Reciprocal Rank Fusion (k=60), the current consensus best practice.
+- **Entity-centric memory** — people/places/projects are extracted at write
+  time and linked, so "Priya kaun hai?" finds the right memory instantly.
+- **💤 Dreaming** — background consolidation (OpenClaw/Letta pattern): related
+  memories cluster together and, past a promotion gate (≥3), become one
+  ✨ insight ("tum aksar raat ko coding karte ho"). Try the quick chip.
+- **MCP server** — Yaad's brain as a Model Context Protocol server
+  (`pnpm mcp`): Claude Code / Cursor / any MCP client can search, add and list
+  memories over stdio.
+- **Parallel deep research** — the planner decomposes a question into 2-4
+  sub-queries, each researched in parallel, then synthesized with citations
+  (Anthropic orchestrator-worker pattern).
+- **Nemotron 3 lineup** — routing presets for Nano 30B (fast), Super 120B
+  (reasoning), Nano-Omni (vision); Qwen3-Embedding-8B for recall.
+
 ## Roadmap
 
 - [ ] Nebius Serverless deployment for the public demo API
-- [ ] Embeddings-based recall via Nebius `/v1/embeddings`
-- [ ] Voice input/output
 - [ ] Scheduled skills (morning briefing on a cron)
 - [ ] Import from agent-memory-notes MCP server
 

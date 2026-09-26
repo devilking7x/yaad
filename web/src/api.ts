@@ -18,7 +18,10 @@ export interface Memory {
   id: string;
   text: string;
   tags: string[];
+  entities: string[];
   createdAt: string;
+  validTo: string | null;
+  supersededBy?: string;
 }
 
 export interface Skill {

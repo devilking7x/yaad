@@ -1,6 +1,7 @@
 import { config } from "./config.js";
 import { chatComplete, chatStream, type ChatMessage, type ChatTool, type Usage } from "./nebius.js";
-import { memoryAdd, memorySearch } from "./memory.js";
+import { memoryAdd, memorySearch, memorySupersede, currentMems } from "./memory.js";
+import { dream } from "./dream.js";
 import { addReminder } from "./reminders.js";
 import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
@@ -111,6 +112,15 @@ const TOOLS: ChatTool[] = [
   {
     type: "function",
     function: {
+      name: "dream",
+      description:
+        "Sapne dekho — yaadon ko jodkar gehre insights nikalo (jaise 'tum aksar raat ko coding karte ho'). Jab user 'sapne dekho' kahe ya insights maange tab chalao. Koi parameters nahi.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "set_reminder",
       description:
         "Set a reminder — Yaad will nudge the user at that time (needs the app/PWA open). Convert the user's words to an ISO 8601 datetime using the current time given in your instructions.",
@@ -159,7 +169,17 @@ async function executeTool(name: string, args: Record<string, string>): Promise<
       return { saved: true, id: mem.id };
     }
     case "recall":
-      return (await memorySearch(args.query, 5)).map((m) => ({ id: m.id, text: m.text, tags: m.tags }));
+      return (await memorySearch(args.query, 5)).map((m) => ({
+        id: m.id,
+        text: m.text,
+        tags: m.tags,
+        entities: m.entities,
+        valid: m.validTo === null,
+      }));
+    case "dream": {
+      const r = await dream();
+      return { insights: r.insights, note: r.note };
+    }
     case "web_search":
       return webSearch(args.query, 5);
     case "deep_research": {
@@ -205,6 +225,8 @@ function systemPrompt(): string {
     "Use `remember` to save durable facts (preferences, people, decisions, routines).",
     "Use `recall` when you need more context.",
     "Never claim to remember something you were not given.",
+    "Memory is versioned: when the user corrects or changes a fact, save the new fact and the OLD one is automatically retired (kept as history, not injected).",
+    "Use `dream` when the user asks for insights or says 'sapne dekho' — it finds patterns across their memories.",
     "",
     "REMINDERS: use `set_reminder` when the user asks to be reminded. Convert their",
     "words to an ISO 8601 datetime with +05:30 offset, using the current time above.",
@@ -237,25 +259,53 @@ function estimateCost(usage: Usage): number | null {
 async function consolidateMemory(userMessage: string, reply: string): Promise<void> {
   if (!config.autoRemember || userMessage.trim().length < 20) return;
   try {
+    // Give the extractor the current memories so it can detect when a new
+    // fact *replaces* an old one (bi-temporal supersedence).
+    const current = currentMems().slice(-30);
+    const currentList = current.map((m) => `- [${m.id}] ${m.text}`).join("\n");
     const { message } = await chatComplete({
       model: config.fastModel,
       temperature: 0.2,
-      maxTokens: 300,
+      maxTokens: 500,
       messages: [
         {
           role: "system",
           content:
             "Extract durable facts about the user from this conversation (preferences, people, decisions, routines, goals). " +
-            "Reply with ONLY a JSON array of strings, e.g. [\"User likes filter coffee\", \"User's sister is Priya\"]. " +
-            "Empty array [] if nothing durable. No other text.",
+            "Also list key entities (people, places, projects) per fact, lowercase. " +
+            "If a new fact REPLACES/CONTRADICTS a current memory below, list its [id] in supersedes. " +
+            'Reply with ONLY JSON: {"facts": [{"text": "...", "tags": ["..."], "entities": ["..."]}], "supersedes": ["id1"]}. ' +
+            "Empty arrays if nothing. No other text.",
         },
-        { role: "user", content: `User: ${userMessage}\nAssistant: ${reply.slice(0, 1500)}` },
+        {
+          role: "user",
+          content:
+            `CURRENT MEMORIES:\n${currentList || "(none)"}\n\n` +
+            `User: ${userMessage}\nAssistant: ${reply.slice(0, 1500)}`,
+        },
       ],
     });
-    const facts = JSON.parse(message.content ?? "[]") as string[];
-    for (const f of facts.slice(0, 5)) {
-      if (typeof f === "string" && f.trim().length > 3) {
-        await memoryAdd(f.trim(), ["auto"]);
+    const parsed = JSON.parse(message.content ?? "{}") as {
+      facts?: Array<{ text?: string; tags?: string[]; entities?: string[] }>;
+      supersedes?: string[];
+    };
+    const facts = (parsed.facts ?? [])
+      .filter((f) => typeof f?.text === "string" && f.text.trim().length > 3)
+      .slice(0, 5);
+    const addedIds: string[] = [];
+    for (const f of facts) {
+      const mem = await memoryAdd(
+        f.text!.trim(),
+        ["auto", ...((f.tags ?? []).map((t) => String(t)).filter(Boolean))].slice(0, 6),
+        (f.entities ?? []).map((e) => String(e)).filter(Boolean)
+      );
+      addedIds.push(mem.id);
+    }
+    // Supersede outdated facts — history is kept, not deleted.
+    if (addedIds.length && Array.isArray(parsed.supersedes)) {
+      const anchor = addedIds[0];
+      for (const id of parsed.supersedes.slice(0, 5)) {
+        if (typeof id === "string" && id !== anchor) memorySupersede(id, anchor);
       }
     }
   } catch {
