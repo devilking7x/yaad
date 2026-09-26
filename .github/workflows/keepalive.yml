@@ -1,0 +1,23 @@
+# Keeps the Render free-tier backend from sleeping (15-min idle spin-down).
+# Pings /api/health every 14 minutes. Set the YAAD_API_URL repo variable
+# (Settings -> Secrets and variables -> Actions -> Variables) to the Render
+# service URL, e.g. https://yaad-api.onrender.com — no trailing slash.
+name: Keep Render awake
+
+on:
+  schedule:
+    - cron: "*/14 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: |
+          URL="${{ vars.YAAD_API_URL }}"
+          if [ -z "$URL" ]; then
+            echo "YAAD_API_URL not set — skipping (set it in repo variables)."
+            exit 0
+          fi
+          curl --silent --show-error --max-time 40 "$URL/api/health" || echo "ping failed, ignoring"

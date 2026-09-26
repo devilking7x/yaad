@@ -1,0 +1,27 @@
+# Yaad backend — one-click Render blueprint.
+# Dashboard: New -> Blueprint -> connect devilking7x/yaad -> Apply.
+# NEBIUS_API_KEY and TAVILY_API_KEY are marked sync:false, so Render
+# prompts for them securely at deploy time (never committed).
+services:
+  - type: web
+    name: yaad-api
+    runtime: node
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter yaad-server build
+    startCommand: pnpm --filter yaad-server start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: NEBIUS_FAST_MODEL
+        value: nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B
+      - key: NEBIUS_REASONING_MODEL
+        value: nvidia/nemotron-3-super-120b-a12b
+      - key: NEBIUS_EMBEDDING_MODEL
+        value: Qwen/Qwen3-Embedding-8B
+      - key: YAAD_AUTO_REMEMBER
+        value: 1
+      # Hard daily spend guard so the $1 Token Factory balance can't blow up.
+      - key: YAAD_DAILY_CAP_USD
+        value: 0.50
