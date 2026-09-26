@@ -1,0 +1,1 @@
+{"compilerOptions":{"esModuleInterop":true,"jsx":"react-jsx","lib":["ES2022","DOM","DOM.Iterable"],"module":"esnext","moduleResolution":"bundler","noEmit":true,"skipLibCheck":true,"strict":true,"target":"es2022","types":["vite/client"]},"include":["src","vite.config.ts"]}
