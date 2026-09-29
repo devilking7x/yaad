@@ -1,0 +1,1 @@
+Under the hood, it's fast. Parallel tool calls fire together, and anything that needs computing goes to a sandboxed code runner — no guessing, just math. Forty-seven times one eighty-three? Done. The date forty-five days from now? Done. And you can expand the thinking block to see exactly how it reasoned.

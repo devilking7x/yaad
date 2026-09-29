@@ -1,0 +1,17 @@
+SEGMENT 1 — INTRO
+Every AI assistant forgets. Yaad doesn't. Meet Yaad — your personal AI that actually remembers you — powered by NVIDIA Nemotron's brain, running on Nebius. This is my entry for the Nebius x N V I D I A hackathon, Personal A I track.
+
+SEGMENT 2 — MEMORY
+Here's the moment that matters. I tell Yaad: my home is in Mumbai. It saves it. Then I say: no wait, I've shifted to Delhi now. Watch what happens — it saves the new memory instantly. So when I ask: where is my home? Yaad answers Delhi — never confused. And the old memory stays safe in history, with a timestamp of when I said it.
+
+SEGMENT 3 — DREAMING AND SKILLS
+At night, Yaad dreams. It reads through your memories and finds patterns you'd never notice — and in the morning, it nudges you itself. You don't have to ask. And here's the wildest part: Yaad writes its own skills. It noticed my gym routine and my morning chai, and drafted two brand new skills by itself. I didn't write them — it learned, it built, I just approve.
+
+SEGMENT 4 — SPEED
+Under the hood, it's fast. Parallel tool calls fire together, and anything that needs computing goes to a sandboxed code runner — no guessing, just math. Forty-seven times one eighty-three? Done. The date forty-five days from now? Done. And you can expand the thinking block to see exactly how it reasoned.
+
+SEGMENT 5 — RESEARCH AND GRAPH
+Long research runs in the background. I ask for a deep dive on A I agents, keep chatting, and Yaad taps me when it's ready — every claim with its source, powered by Tavily. And this — this is your mind, visualized. A knowledge graph of every entity Yaad knows about you. Click a node, and your memories filter around it.
+
+SEGMENT 6 — OUTRO
+Yaad — the A I that never forgets. NVIDIA Nemotron for deep reasoning, Nebius Token Factory for speed, Tavily for research, with an M C P server and an installable P W A. Built for the Nebius x N V I D I A hackathon. Try the live demo — link in the description. And if Yaad remembered something about you, leave a star.
