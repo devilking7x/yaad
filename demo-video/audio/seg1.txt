@@ -1,1 +1,0 @@
-Every AI assistant forgets. Yaad doesn't. Meet Yaad — your personal AI that actually remembers you — powered by NVIDIA Nemotron's brain, running on Nebius. This is my entry for the Nebius x N V I D I A hackathon, Personal A I track.

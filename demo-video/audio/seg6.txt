@@ -1,1 +1,0 @@
-Yaad — the A I that never forgets. NVIDIA Nemotron for deep reasoning, Nebius Token Factory for speed, Tavily for research, with an M C P server and an installable P W A. Built for the Nebius x N V I D I A hackathon. Try the live demo — link in the description. And if Yaad remembered something about you, leave a star.
