@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, chatStream, type ChatSession, type GraphData, type Job, type Memory, type Nudge, type Reminder, type Skill } from "./api";
 import Graph from "./Graph";
+import Timeline from "./Timeline";
 import { renderRich } from "./md";
 
 interface Msg {
@@ -63,7 +64,7 @@ export default function App() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [drafts, setDrafts] = useState<Skill[]>([]);
   const [jobs, setJobs] = useState<Job[]>([]);
-  const [graphView, setGraphView] = useState(false);
+  const [memoryView, setMemoryView] = useState<"list" | "graph" | "timeline">("list");
   const [graph, setGraph] = useState<GraphData>({ nodes: [], edges: [] });
   const [graphEntity, setGraphEntity] = useState<string | null>(null);
   const [reminders, setReminders] = useState<Reminder[]>([]);
@@ -877,15 +878,19 @@ export default function App() {
               <>
                 <div className="flex gap-1 mb-1">
                   <button
-                    onClick={() => setGraphView(false)}
-                    className={`flex-1 text-xs py-1 rounded-lg ${!graphView ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
+                    onClick={() => setMemoryView("list")}
+                    className={`flex-1 text-xs py-1 rounded-lg ${memoryView === "list" ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
                   >📋 List</button>
                   <button
-                    onClick={() => setGraphView(true)}
-                    className={`flex-1 text-xs py-1 rounded-lg ${graphView ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
+                    onClick={() => setMemoryView("graph")}
+                    className={`flex-1 text-xs py-1 rounded-lg ${memoryView === "graph" ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
                   >🕸 Graph</button>
+                  <button
+                    onClick={() => setMemoryView("timeline")}
+                    className={`flex-1 text-xs py-1 rounded-lg ${memoryView === "timeline" ? "bg-yellow-600/20 text-yellow-300" : "text-neutral-500"}`}
+                  >📅 Timeline</button>
                 </div>
-                {graphView ? (
+                {memoryView === "graph" ? (
                   <>
                     <Graph nodes={graph.nodes} edges={graph.edges} selected={graphEntity} onSelect={setGraphEntity} />
                     {graphEntity && (
@@ -894,6 +899,8 @@ export default function App() {
                       </button>
                     )}
                   </>
+                ) : memoryView === "timeline" ? (
+                  <Timeline memories={memories} query={memoryQuery} onForget={forget} />
                 ) : (
                 <>
                 <input
