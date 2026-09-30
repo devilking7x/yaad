@@ -159,6 +159,19 @@ including the Delhi-vs-coffee ranking regression. Results land in
 - `yaad_memory_list` — browse the store
 - `yaad_reminders_list` — your reminders
 
+### 🔍 SerpApi search backend (SerpApi India Hackathon 2026)
+
+Yaad's `web_search` agent tool can run on **SerpApi** instead of Tavily —
+built for the [SerpApi India Hackathon 2026](https://serpapi.github.io/serpapi-india-hackathon-2026/)
+(existing projects explicitly welcome; deadline 10 Oct 2026).
+
+- Set `SERPAPI_API_KEY` (free key from your [serpapi.com](https://serpapi.com) dashboard —
+  **never commit it, never paste it in chat**) and the agent's web searches go
+  through SerpApi's Google Search JSON API (`organic_results` → title/link/snippet).
+- Leave it empty and everything works exactly as before on Tavily — nothing breaks.
+- `SERPAPI_MOCK=1` returns 3 clearly-labeled `[MOCK]` canned results with no
+  network call, so you can test the wiring end-to-end before spending API credits.
+
 ### 👀📱 The demo polish judges actually touch
 
 - **📷 Vision memory** — attach a photo in chat; the Nemotron vision model describes

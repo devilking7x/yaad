@@ -40,6 +40,11 @@ export const config = {
   reasoningModel: process.env.NEBIUS_REASONING_MODEL ?? "",
   fastModel: process.env.NEBIUS_FAST_MODEL ?? "",
   tavilyApiKey: process.env.TAVILY_API_KEY ?? "",
+  // --- SerpApi (alternate web-search backend; SerpApi India Hackathon 2026) ---
+  // When SERPAPI_API_KEY is set, Yaad's `web_search` tool uses SerpApi instead
+  // of Tavily. SERPAPI_MOCK=1 returns labeled canned results for testing.
+  serpapiApiKey: process.env.SERPAPI_API_KEY ?? "",
+  serpapiMock: (process.env.SERPAPI_MOCK ?? "") === "1",
   embeddingModel: process.env.NEBIUS_EMBEDDING_MODEL ?? "",
   visionModel: process.env.NEBIUS_VISION_MODEL ?? "",
   // Optional per-1M-token prices (USD) for the cost meter — copy from Token Factory pricing.

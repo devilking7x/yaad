@@ -8,7 +8,8 @@ import { addReminder } from "./reminders.js";
 import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
 import { checkBudget, checkIpBudget, estimateChatCost, recordSpend, recordIpSpend, releaseSpend, reserveSpend, TURN_RESERVE_USD } from "./spend.js";
-import { deepResearch, readPage, webSearch } from "./tavily.js";
+import { deepResearch, readPage } from "./tavily.js";
+import { webSearch } from "./serpapi.js"; // SerpApi backend when SERPAPI_API_KEY set; Tavily otherwise
 import { describeImage } from "./vision.js";
 
 // Yaad agent: recall memory -> pick skills -> reason with Nemotron -> act with tools.
