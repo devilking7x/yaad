@@ -9,6 +9,7 @@ import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
 import { checkBudget, checkIpBudget, estimateChatCost, recordSpend, recordIpSpend, releaseSpend, reserveSpend, TURN_RESERVE_USD } from "./spend.js";
 import { deepResearch, readPage, webSearch } from "./tavily.js";
+import { tasteRecommend } from "./qloo.js";
 import { describeImage } from "./vision.js";
 
 // Yaad agent: recall memory -> pick skills -> reason with Nemotron -> act with tools.
@@ -51,6 +52,32 @@ const TOOLS: ChatTool[] = [
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "taste_recommend",
+      description:
+        "Taste-graph recommendations from Qloo (250M+ entities): movies, music, restaurants, fashion brands, books, podcasts. Use when the user asks for suggestions, e.g. 'suggest sci-fi movies' or 'good restaurants in Pune'.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What the user likes or asks about, e.g. 'sci-fi movies like Interstellar' or 'Italian food'.",
+          },
+          category: {
+            type: "string",
+            description: "One of: movie, music, restaurant, fashion, book, podcast. Default: movie.",
+          },
+          location: {
+            type: "string",
+            description: "Optional city/area for restaurant/place picks, e.g. 'Pune'.",
+          },
+        },
         required: ["query"],
       },
     },
@@ -225,6 +252,8 @@ async function executeTool(name: string, args: Record<string, string>, clientIp?
     }
     case "web_search":
       return webSearch(args.query, 5);
+    case "taste_recommend":
+      return tasteRecommend(args.query, args.category || "movie", args.location || "", 8);
     case "deep_research": {
       const r = await deepResearch(args.query, clientIp);
       return { summary: r.summary, sources: r.sources };
@@ -297,7 +326,7 @@ function systemPrompt(): string {
     skillCatalog,
     "You can also `install_skill` from a URL the user shares.",
     "",
-    "TOOLS: `web_search` for quick current facts; `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
+    "TOOLS: `web_search` for quick current facts; `taste_recommend` for taste-graph picks (movies, music, restaurants, fashion); `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
     "VISION: the user can share images — they are described by a vision model and auto-saved to memory (photos, receipts, documents).",
     "Be warm, concise, and specific. Answer in the user's language.",
   ].join("\n");

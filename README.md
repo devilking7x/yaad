@@ -79,12 +79,26 @@ zero GPU setup — pure Token Factory.
 2–4 focused sub-queries → parallel Tavily advanced searches → parallel page extraction →
 a single cited synthesis. Built for the **Best Use of Tavily** prize.
 
-**Tool loop:** `remember` · `recall` · `web_search` · `deep_research` · `read_page` ·
+**Tool loop:** `remember` · `recall` · `web_search` · `taste_recommend` · `deep_research` · `read_page` ·
 `run_skill` · `install_skill` · `set_reminder` · `see_image` · `dream` · **`run_code`** — then a final
 answer, **streamed token-by-token** over SSE with live tool-status hints. Independent tool calls in
 one turn execute **in parallel** (Grok-style), not one-by-one — multi-tool answers land faster.
 A **proactive engine** (`proactive.ts`) wakes Yaad up on its own: due reminders, the morning briefing
 window, and fresh dream insights surface as nudges without you asking.
+
+### 🎵 Taste graph via Qloo
+
+Yaad's agent has a **`taste_recommend` tool** powered by the Qloo Taste Intelligence API
+(250M+ entities: movies, music, dining, fashion, books, podcasts). Ask *"sci-fi movies suggest
+karo"* or *"Pune me achhe restaurants"* and the agent resolves your taste through Qloo's
+Insights API (`X-Api-Key` auth, `POST /v2/insights` with interest signals).
+
+- **Enable:** get a free key at [dashboard.qloo.com](https://dashboard.qloo.com) and set
+  `QLOO_API_KEY` in your environment — **never commit it, never paste it in chat.**
+- **Test without a key:** `QLOO_MOCK=1` returns canned results clearly labeled `[MOCK]`
+  (mock results are never presented as real).
+- **No key?** The tool answers gracefully ("Qloo API key not configured") — nothing crashes.
+- Built for the **Qloo Agent Hackathon** (integrating the Qloo API into an existing agent).
 
 ### 🔔 Proactive engine — Yaad waits for no one
 

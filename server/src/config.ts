@@ -40,6 +40,12 @@ export const config = {
   reasoningModel: process.env.NEBIUS_REASONING_MODEL ?? "",
   fastModel: process.env.NEBIUS_FAST_MODEL ?? "",
   tavilyApiKey: process.env.TAVILY_API_KEY ?? "",
+  // Qloo Taste Intelligence (Qloo Agent Hackathon): taste-graph recommendations.
+  // Get a key at dashboard.qloo.com — never commit it. QLOO_MOCK=1 uses canned
+  // [MOCK]-labeled results for testing without a key.
+  qlooApiKey: process.env.QLOO_API_KEY ?? "",
+  qlooMock: (process.env.QLOO_MOCK ?? "") === "1",
+  qlooApiUrl: (process.env.QLOO_API_URL ?? "https://hackathon.api.qloo.com/v2").replace(/\/+$/, ""),
   embeddingModel: process.env.NEBIUS_EMBEDDING_MODEL ?? "",
   visionModel: process.env.NEBIUS_VISION_MODEL ?? "",
   // Optional per-1M-token prices (USD) for the cost meter — copy from Token Factory pricing.
