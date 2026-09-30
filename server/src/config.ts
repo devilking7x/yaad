@@ -43,7 +43,7 @@ export const config = {
   // --- SerpApi (alternate web-search backend; SerpApi India Hackathon 2026) ---
   // When SERPAPI_API_KEY is set, Yaad's `web_search` tool uses SerpApi instead
   // of Tavily. SERPAPI_MOCK=1 returns labeled canned results for testing.
-  serpapiApiKey: process.env.SERPAPI_API_KEY ?? "",
+  serpapiApiKey: (process.env.SERPAPI_API_KEY ?? "").trim(),
   serpapiMock: (process.env.SERPAPI_MOCK ?? "") === "1",
   embeddingModel: process.env.NEBIUS_EMBEDDING_MODEL ?? "",
   visionModel: process.env.NEBIUS_VISION_MODEL ?? "",

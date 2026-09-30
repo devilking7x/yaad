@@ -171,6 +171,15 @@ built for the [SerpApi India Hackathon 2026](https://serpapi.github.io/serpapi-i
 - Leave it empty and everything works exactly as before on Tavily — nothing breaks.
 - `SERPAPI_MOCK=1` returns 3 clearly-labeled `[MOCK]` canned results with no
   network call, so you can test the wiring end-to-end before spending API credits.
+- **`news_search` tool** — SerpApi's Google News vertical (`news_results`) for
+  latest headlines; same mock labeling and fallback behavior as web search.
+- **Result cache** — in-memory 5-minute TTL cache (per backend + query), so
+  repeated questions don't burn API quota. Cache hits are logged server-side.
+- **Degradation chain** — SerpApi fails (bad key, rate limit, timeout, bad JSON)
+  → automatic Tavily fallback → clean error if both fail. Every step is logged,
+  and the agent is told which backend served the request (`serpapi`,
+  `serpapi-mock`, `tavily`, or `tavily-fallback`), so it can answer honestly.
+  Error messages never contain the API key.
 
 ### 👀📱 The demo polish judges actually touch
 

@@ -9,7 +9,7 @@ import { getSettings } from "./settings.js";
 import { getSkill, installSkill, listSkills } from "./skills.js";
 import { checkBudget, checkIpBudget, estimateChatCost, recordSpend, recordIpSpend, releaseSpend, reserveSpend, TURN_RESERVE_USD } from "./spend.js";
 import { deepResearch, readPage } from "./tavily.js";
-import { webSearch } from "./serpapi.js"; // SerpApi backend when SERPAPI_API_KEY set; Tavily otherwise
+import { webSearchWithMeta, newsSearchWithMeta } from "./serpapi.js"; // SerpApi backends when SERPAPI_API_KEY set (Tavily fallback); Tavily otherwise
 import { describeImage } from "./vision.js";
 
 // Yaad agent: recall memory -> pick skills -> reason with Nemotron -> act with tools.
@@ -48,7 +48,21 @@ const TOOLS: ChatTool[] = [
     type: "function",
     function: {
       name: "web_search",
-      description: "Quick web search (Tavily, advanced depth) for current facts, docs, prices, news.",
+      description:
+        "Quick web search for current facts, docs, prices (SerpApi when configured, Tavily fallback).",
+      parameters: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "news_search",
+      description:
+        "Latest news search via SerpApi Google News (general web-search fallback if the news vertical is unavailable). Use for recent events, headlines, breaking news.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -225,7 +239,9 @@ async function executeTool(name: string, args: Record<string, string>, clientIp?
       return { insights: r.insights, note: r.note, draftedSkills: s.drafted };
     }
     case "web_search":
-      return webSearch(args.query, 5);
+      return webSearchWithMeta(args.query, 5);
+    case "news_search":
+      return newsSearchWithMeta(args.query, 5);
     case "deep_research": {
       const r = await deepResearch(args.query, clientIp);
       return { summary: r.summary, sources: r.sources };
@@ -298,7 +314,7 @@ function systemPrompt(): string {
     skillCatalog,
     "You can also `install_skill` from a URL the user shares.",
     "",
-    "TOOLS: `web_search` for quick current facts; `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
+    "TOOLS: `web_search` for quick current facts; `news_search` for latest headlines; `deep_research` for complex multi-source questions (cited, ~30-60s); `read_page` to read any URL in full.",
     "VISION: the user can share images — they are described by a vision model and auto-saved to memory (photos, receipts, documents).",
     "Be warm, concise, and specific. Answer in the user's language.",
   ].join("\n");
