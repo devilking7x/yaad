@@ -38,6 +38,11 @@ app.get("/api/health", (_req, res) => {
   // Keep it minimal; model details live behind the API token at /api/models.
   res.json({ ok: true, service: "yaad" });
 });
+// Landing page so the bare URL shows a live demo instead of "Cannot GET /".
+app.get("/", (_req, res) => {
+  res.type("html").send(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Yaad — Personal AI Memory Agent</title><style>body{background:#0d0d10;color:#f5f5f5;font-family:system-ui,sans-serif;margin:0;padding:32px}h1{color:#d4af37;margin:0 0 8px}.card{background:#1a1a20;border:1px solid #d4af37;border-radius:12px;padding:24px;max-width:560px;margin:0 auto}a{color:#d4af37}.ok{color:#4ade80}code{background:#2a2a32;padding:2px 6px;border-radius:4px}</style></head><body><div class="card"><h1>Yaad</h1><p><span class="ok">● LIVE</span> — Personal AI memory agent</p><p>Yaad remembers what matters to you. This is the API backend — chat with it via <code>POST /api/chat</code> or check <a href="/api/health">/api/health</a>.</p><ul><li><a href="/api/health">/api/health</a> — status JSON</li><li><code>POST /api/chat</code> — chat with Yaad (JSON: { message })</li></ul><p>Source: <a href="https://github.com/devilking7x/yaad">github.com/devilking7x/yaad</a></p></div></body></html>`);
+});
+
 
 // Optional shared-secret auth (set YAAD_API_TOKEN on the server). Health stays open.
 app.use("/api", (req, res, next) => {
